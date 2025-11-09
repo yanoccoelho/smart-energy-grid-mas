@@ -13,8 +13,8 @@ class ProducerAgent(spade.agent.Agent):
     """
     Producer agent (solar or wind).
     - Periodically sends its generation status to the Grid Node.
-    - When a CFP (Call for Proposals) is received, it immediately offers
-      its available production at the configured price.
+    - Adjusts its production based on environment data (irradiance, wind speed).
+    - Responds to CFPs from the Grid Node with offers.
     """
 
     def __init__(self, jid, password, grid_node_jid, production_type="solar", max_capacity_kw=100.0, ask_price=0.18):
@@ -27,46 +27,65 @@ class ProducerAgent(spade.agent.Agent):
         self.active_round_id = None
         self.round_deadline_ts = 0.0
 
+        # Environmental factors
+        self.solar_irradiance = 0.0
+        self.wind_speed = 0.0
+
     # Helpers
 
     def _log_print(self, msg):
-        """Print timestamped messages."""
         now = time.strftime("%H:%M:%S")
         print(f"[{now}] {msg}")
 
     def _add_event(self, kind, kw=0.0, price=0.0, R=None):
-        """Store a local event in the database."""
         jid_local = str(self.jid).split('@')[0]
         if hasattr(self, "db_logger"):
             self.db_logger.log_event(kind, jid_local, kw, price, R)
 
-    # Behaviours
+    # === Behaviours ===
 
-    class UpdateProductionBehaviour(PeriodicBehaviour):
-        """Periodically updates production and sends status to the Grid Node."""
+    class EnvironmentReceiver(CyclicBehaviour):
+        """Receives environment updates (solar irradiance and wind speed)."""
 
         async def run(self):
-            # Simple generation model by source type
+            msg = await self.receive(timeout=0.5)
+            if not msg or (msg.metadata or {}).get("type") != "environment_update":
+                return
+            try:
+                data = json.loads(msg.body)
+            except Exception:
+                return
+
+            # Update environment variables
+            self.agent.solar_irradiance = float(data.get("solar_irradiance", 0.0))
+            self.agent.wind_speed = float(data.get("wind_speed", 0.0))
+            jid_local = str(self.agent.jid).split('@')[0]
+            self.agent._log_print(
+                f"[{jid_local}] Environment update received: solar={self.agent.solar_irradiance:.2f}, wind={self.agent.wind_speed:.1f} m/s"
+            )
+            self.agent._add_event("env_update", self.agent.solar_irradiance, 0.0)
+
+    class UpdateProductionBehaviour(PeriodicBehaviour):
+        """Periodically updates production based on environment and sends report."""
+
+        async def run(self):
             if self.agent.production_type == "solar":
-                current_hour = datetime.now().hour
-                if 7 <= current_hour < 19:
-                    peak_hour = 13
-                    factor = max(0.0, 1 - (abs(current_hour - peak_hour) / 6) ** 2)
-                    self.agent.current_production_kw = max(
-                        0.0, factor * self.agent.max_capacity_kw + random.uniform(-5, 5)
-                    )
-                else:
-                    self.agent.current_production_kw = 0.0
-            else:  # wind
-                base = self.agent.max_capacity_kw * random.uniform(0.2, 0.9)
-                fluct = self.agent.max_capacity_kw * random.uniform(-0.15, 0.15)
-                self.agent.current_production_kw = max(0.0, base + fluct)
-                if random.random() < 0.05:  # 5% chance of calm wind
-                    self.agent.current_production_kw *= 0.1
+                # Production proportional to irradiance
+                irradiance = getattr(self.agent, "solar_irradiance", 0.0)
+                self.agent.current_production_kw = max(
+                    0.0, irradiance * self.agent.max_capacity_kw + random.uniform(-3, 3)
+                )
 
-            # Log event and send production report
+            elif self.agent.production_type == "eolic":
+                # Production proportional to wind speed (0–15 m/s)
+                wind = getattr(self.agent, "wind_speed", 0.0)
+                normalized = min(max(wind / 15.0, 0.0), 1.0)
+                self.agent.current_production_kw = max(
+                    0.0, normalized * self.agent.max_capacity_kw + random.uniform(-5, 5)
+                )
+
+            # Log event and send report
             self.agent._add_event("status", self.agent.current_production_kw, 0.0)
-
             report = {
                 "jid": str(self.agent.jid),
                 "prod_kw": self.agent.current_production_kw,
@@ -86,7 +105,6 @@ class ProducerAgent(spade.agent.Agent):
             msg = await self.receive(timeout=0.5)
             if not msg or (msg.metadata or {}).get("type") != "call_for_offers":
                 return
-
             try:
                 data = json.loads(msg.body)
             except Exception:
@@ -129,8 +147,6 @@ class ProducerAgent(spade.agent.Agent):
             self.agent._add_event("offer_accepted", kw, price, R)
 
     class StartAfterDelay(OneShotBehaviour):
-        """Delays the start of periodic production updates."""
-
         def __init__(self, delay_s=30):
             super().__init__()
             self.delay_s = delay_s
@@ -140,10 +156,10 @@ class ProducerAgent(spade.agent.Agent):
             self.agent.add_behaviour(self.agent.UpdateProductionBehaviour(period=30))
 
     async def setup(self):
-        """Initializes the producer agent and its behaviours."""
         jid_local = str(self.jid).split('@')[0]
         self._log_print(f"[{jid_local}] Producer Agent ({self.production_type}) started.")
         self.db_logger = DBLogger()
         self.add_behaviour(self.StartAfterDelay(delay_s=30))
         self.add_behaviour(self.InviteReceiver())
         self.add_behaviour(self.AckReceiver())
+        self.add_behaviour(self.EnvironmentReceiver())

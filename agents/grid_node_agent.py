@@ -317,7 +317,17 @@ class GridNodeAgent(spade.agent.Agent):
 
                 print(f"--- End of auction (round {R}) ---\n")
 
-                # Cleanup
+                # Wait and print summary table before cleanup
+                seq_snapshot = self.agent.last_event_seq
+                print(f"[{time.strftime('%H:%M:%S')}] Printing grid summary for round {R}...")
+                table_behaviour = self.agent.PrintTotalsTable(R, seq_snapshot)
+                self.agent.add_behaviour(table_behaviour)
+
+                # Wait enough time for PrintTotalsTable to execute
+                await asyncio.sleep(self.agent.debounce_delay_s + 0.5)
+
+                # Cleanup round data after printing
+                print(f"[{time.strftime('%H:%M:%S')}] Cleaning up round {R} data...")
                 for d in [
                     self.agent.offers_round,
                     self.agent.requests_round,
@@ -333,4 +343,55 @@ class GridNodeAgent(spade.agent.Agent):
                 self.agent.round_id = None
                 self.agent.round_deadline_ts = 0.0
 
+                print(f"[{time.strftime('%H:%M:%S')}] Round {R} completed. Waiting for next cycle...\n")
+    
                 await asyncio.sleep(10.0)
+
+
+    class PrintTotalsTable(OneShotBehaviour):
+        """Prints a summary table of the current round's totals."""
+
+        def __init__(self, R, seq_snapshot):
+            super().__init__()
+            self.R = R
+            self.seq_snapshot = seq_snapshot
+
+        async def run(self):
+            # Wait a moment for all events to settle
+            await asyncio.sleep(self.agent.debounce_delay_s)
+
+            # Only skip if the round changed
+            if self.agent.round_id != self.R:
+                return
+
+            ev = [e for e in self.agent.events if e.get("R") == self.R]
+
+            def cnt_kind(k):
+                return sum(1 for e in ev if e["kind"] == k)
+
+            tot = self.agent.totals_round.get(self.R, {
+                "demand_kw_status": 0.0,
+                "offer_kw_status": 0.0,
+                "demand_kw_bids": 0.0,
+                "offer_kw_bids": 0.0
+            })
+            dem_total = tot["demand_kw_status"] + tot["demand_kw_bids"]
+            off_total = tot["offer_kw_status"] + tot["offer_kw_bids"]
+
+            csets = self.agent.counts_round.get(self.R, {
+                "request_status": set(),
+                "offer_status": set(),
+                "request_bids": set(),
+                "offer_bids": set()
+            })
+            req_agents = len(csets["request_status"] | csets["request_bids"])
+            off_agents = len(csets["offer_status"] | csets["offer_bids"])
+
+            print("\n------ Grid Table (round {}) ------".format(self.R))
+            print("| Metric              | Count |     kW   |")
+            print("|---------------------|-------|----------|")
+            print(f"| Status messages     | {cnt_kind('status'):5d} | {0.0:8.2f} |")
+            print(f"| Energy requests     | {req_agents:5d} | {dem_total:8.2f} |")
+            print(f"| Energy offers       | {off_agents:5d} | {off_total:8.2f} |")
+            print("-----------------------------------\n")
+

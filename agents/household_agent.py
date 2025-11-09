@@ -32,6 +32,11 @@ class HouseholdAgent(spade.agent.Agent):
         self.max_charge_kw = 3.0
         self.max_discharge_kw = 3.0
 
+        # Environmental factors (only relevant for prosumers)
+        self.solar_irradiance = 0.0
+        self.last_env_update = 0.0
+
+
         # Active auction round
         self.active_round_id = None
         self.round_deadline_ts = 0.0
@@ -50,7 +55,7 @@ class HouseholdAgent(spade.agent.Agent):
             self.db_logger.log_event(kind, jid_local, kw, price, R)
 
     # Behaviours
-
+    
     class RoundReceiver(CyclicBehaviour):
         """Waits for CFP messages and triggers an immediate bid."""
 
@@ -122,13 +127,15 @@ class HouseholdAgent(spade.agent.Agent):
             else:
                 self.agent.current_demand_kw = random.uniform(1.0, 2.5)
 
-            # Production (for prosumers)
-            if self.agent.is_prosumer and 7 <= current_hour <= 19:
-                peak = 13
-                factor = max(0.0, 1 - (abs(current_hour - peak) / 6) ** 2)
-                self.agent.current_production_kw = factor * 5.0 + random.uniform(-0.5, 0.5)
+            # Updated production: uses environment data if prosumer
+            if self.agent.is_prosumer:
+                irradiance = getattr(self.agent, "solar_irradiance", 0.0)
+                # Simulate 5 kW max under full sun
+                self.agent.current_production_kw = irradiance * 5.0 + random.uniform(-0.3, 0.3)
+                self.agent.current_production_kw = max(0.0, self.agent.current_production_kw)
             else:
                 self.agent.current_production_kw = 0.0
+
 
             # Battery operation
             net_kw = self.agent.current_production_kw - self.agent.current_demand_kw
@@ -206,12 +213,33 @@ class HouseholdAgent(spade.agent.Agent):
         async def run(self):
             await asyncio.sleep(self.delay_s)
             self.agent.add_behaviour(self.agent.UpdateStateBehaviour(period=30))
+    
+    class EnvironmentReceiver(CyclicBehaviour):
+        """Receives periodic environmental updates from EnvironmentAgent."""
+
+        async def run(self):
+            msg = await self.receive(timeout=0.5)
+            if not msg or (msg.metadata or {}).get("type") != "environment_update":
+                return
+            try:
+                data = json.loads(msg.body)
+            except Exception:
+                return
+
+            self.agent.solar_irradiance = float(data.get("solar_irradiance", 0.0))
+            self.agent.last_env_update = time.time()
+            jid_local = str(self.agent.jid).split('@')[0]
+            self.agent._log_print(f"[{jid_local}] Environment update received: irradiance={self.agent.solar_irradiance:.2f}")
+            self.agent._add_event("env_update", self.agent.solar_irradiance, 0.0)
+
 
     async def setup(self):
-        """Initialize the agent and start periodic behaviours."""
         jid_local = str(self.jid).split('@')[0]
         self._log_print(f"[{jid_local}] Household Agent started.")
         self.db_logger = DBLogger()
         self.add_behaviour(self.StartAfterDelay(delay_s=30))
         self.add_behaviour(self.ControlReceiver())
         self.add_behaviour(self.RoundReceiver())
+        if self.is_prosumer:
+            self.add_behaviour(self.EnvironmentReceiver())
+
