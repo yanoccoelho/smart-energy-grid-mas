@@ -2,58 +2,85 @@ import time
 import json
 import random
 import spade
-from spade.behaviour import PeriodicBehaviour
+from spade.behaviour import CyclicBehaviour
 from spade.message import Message
 
-
 class EnvironmentAgent(spade.agent.Agent):
-    """
-    Environment Agent
-    -----------------
-    Simulates external environmental conditions that affect
-    the entire smart grid, such as sunlight, wind, and temperature.
-    """
+    """Environment Agent - Simulates environmental conditions."""
 
     def __init__(self, jid, password, broadcast_list):
         super().__init__(jid, password)
-        self.broadcast_list = broadcast_list  # list of JIDs (producers, prosumers, storage)
-        self.temperature_c = 25.0
-        self.solar_irradiance = 0.8
+        self.broadcast_list = broadcast_list
+        self.temperature_c = 20.0  # Starting temperature
+        self.solar_irradiance = 0.8  # 0-1 range
         self.wind_speed = 5.0
 
-    class UpdateEnvironment(PeriodicBehaviour):
-        async def run(self):
-            # Simulate natural variations
-            hour = time.localtime().tm_hour
-
-            # Solar irradiance curve (day/night)
-            if 6 <= hour <= 18:
-                peak = 12
-                self.agent.solar_irradiance = max(
-                    0.0, 1 - ((hour - peak) / 6) ** 2 + random.uniform(-0.05, 0.05)
-                )
-            else:
-                self.agent.solar_irradiance = 0.0
-
-            # Wind and temperature
-            self.agent.wind_speed = max(0.0, random.gauss(6, 2))
-            self.agent.temperature_c += random.uniform(-0.3, 0.3)
-
-            env_data = {
-                "t": time.time(),
-                "solar_irradiance": round(self.agent.solar_irradiance, 3),
-                "wind_speed": round(self.agent.wind_speed, 2),
-                "temperature_c": round(self.agent.temperature_c, 2),
-            }
-
-            for target in self.agent.broadcast_list:
-                msg = Message(to=target)
-                msg.metadata = {"performative": "inform", "type": "environment_update"}
-                msg.body = json.dumps(env_data)
-                await self.send(msg)
-
-            print(f"[Environment] Sent update: {env_data}")
-
     async def setup(self):
-        print(f"[{str(self.jid).split('@')[0]}] Environment Agent starting...")
-        self.add_behaviour(self.UpdateEnvironment(period=30))
+        """Setup - listen for update requests from GridNode."""
+        self.add_behaviour(self.UpdateListener())
+
+    def _calculate_environment(self, sim_hour):
+        """Calculate environment data based on SIMULATED hour."""
+        # Solar irradiance curve (0-1 range) based on SIMULATED hour
+        if 6 <= sim_hour <= 18:
+            peak = 12
+            self.solar_irradiance = max(
+                0.0, 1 - ((sim_hour - peak) / 6) ** 2 + random.uniform(-0.05, 0.05)
+            )
+        else:
+            self.solar_irradiance = 0.0
+
+        # Wind speed (gaussian distribution)
+        self.wind_speed = max(0.0, random.gauss(6, 2))
+
+        # Temperature based on time of day (realistic daily cycle)
+        if 0 <= sim_hour < 6:
+            # Madrugada (00h-06h): 16-18°C
+            base_temp = random.uniform(16.0, 18.0)
+        elif 6 <= sim_hour < 9:
+            # Manhã (06h-09h): 18-22°C
+            base_temp = random.uniform(18.0, 22.0)
+        elif 9 <= sim_hour < 15:
+            # Meio-dia/Tarde (09h-15h): 23-27°C
+            base_temp = random.uniform(23.0, 27.0)
+        elif 15 <= sim_hour < 18:
+            # Final da tarde (15h-18h): 21-25°C
+            base_temp = random.uniform(21.0, 25.0)
+        else:  # 18h-00h
+            # Noite (18h-00h): 18-21°C
+            base_temp = random.uniform(18.0, 21.0)
+        
+        # Add small random variation (±0.5°C)
+        self.temperature_c = base_temp + random.uniform(-0.5, 0.5)
+        self.temperature_c = round(self.temperature_c, 1)
+
+    class UpdateListener(CyclicBehaviour):
+        """Listen for update requests from GridNode."""
+        
+        async def run(self):
+            msg = await self.receive(timeout=1.0)
+            if not msg:
+                return
+            
+            msg_type = msg.metadata.get("type", "")
+            
+            if msg_type == "request_environment_update":
+                data = json.loads(msg.body)
+                sim_hour = data.get("sim_hour", 12)
+                
+                # Calculate environment based on SIMULATED hour
+                self.agent._calculate_environment(sim_hour)
+                
+                # Broadcast to all agents with simulated hour AND temperature
+                broadcast_data = {
+                    "solar_irradiance": self.agent.solar_irradiance,
+                    "wind_speed": self.agent.wind_speed,
+                    "temperature_c": self.agent.temperature_c,
+                    "sim_hour": sim_hour
+                }
+                
+                for target_jid in self.agent.broadcast_list:
+                    env_msg = Message(to=target_jid)
+                    env_msg.metadata = {"performative": "inform", "type": "environment_update"}
+                    env_msg.body = json.dumps(broadcast_data)
+                    await self.send(env_msg)
