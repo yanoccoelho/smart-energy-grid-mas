@@ -8,6 +8,7 @@ from spade.behaviour import CyclicBehaviour, OneShotBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
 from agents.performance_metrics import PerformanceTracker
+from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
 
 
 class GridNodeAgent(spade.agent.Agent):
@@ -17,15 +18,16 @@ class GridNodeAgent(spade.agent.Agent):
         super().__init__(jid, password)
         self.expected_agents = expected_agents
         self.env_jid = env_jid
+        self.transmission_limit_kw = SIMULATION["TRANSMISSION_LIMIT_KW"]
 
         if external_grid_config is None:
             external_grid_config = {
                 "enabled": True,
-                "buy_price_min": 0.10,
-                "buy_price_max": 0.15,
-                "sell_price_min": 0.25,
-                "sell_price_max": 0.32,
-                "acceptance_prob": 1.0
+                "buy_price_min": EXTERNAL_GRID["MIN_DYNAMIC_PRICE"],
+                "buy_price_max": EXTERNAL_GRID["SELL_PRICE"],
+                "sell_price_min": EXTERNAL_GRID["BUY_PRICE"],
+                "sell_price_max": EXTERNAL_GRID["MAX_DYNAMIC_PRICE"],
+                "acceptance_prob": EXTERNAL_GRID["ACCEPTANCE_PROB"]
             }
 
         self.external_grid_enabled = external_grid_config.get("enabled", True)
@@ -43,7 +45,7 @@ class GridNodeAgent(spade.agent.Agent):
         self.ext_grid_rounds_available = 0
         self.ext_grid_rounds_unavailable = 0
 
-        self.producer_failure_probability = 0.2
+        self.producer_failure_probability = PRODUCERS["FAILURE_PROB"]
         self.any_producer_failed = False
         self.performance_tracker = PerformanceTracker()
 
@@ -129,7 +131,8 @@ class GridNodeAgent(spade.agent.Agent):
         for p_jid, state in self.producers_state.items():
             if state.get("is_operational", True):
                 if random.random() < self.producer_failure_probability:
-                    failure_duration = random.randint(1, 4)
+                    min_rounds, max_rounds = PRODUCERS["FAILURE_ROUNDS_RANGE"]
+                    failure_duration = random.randint(min_rounds, max_rounds)
                     state["is_operational"] = False
                     state["failure_rounds_remaining"] = failure_duration
                     state["failure_rounds_total"] = failure_duration
@@ -396,17 +399,19 @@ class GridNodeAgent(spade.agent.Agent):
                     print(f"🔨 AUCTION PROCESS:\n")
                     print(f"→ Broadcasting CFP to eligible agents...")
                     print(f"  {len(sellers)} eligible sellers | {num_potential_buyers} potential buyers")
-                    print(f"  Waiting for responses (10s deadline)...\n")
+                    offers_timeout = SIMULATION["OFFERS_TIMEOUT"]
+                    print(f"  Waiting for responses ({offers_timeout}s deadline)...\n")
                     
-                    self.agent.round_deadline_ts = time.time() + 10.0
+                    self.agent.round_deadline_ts = time.time() + offers_timeout
                     burst = self.agent._InviteBurstSend(R, list(eligible_for_cfp), self.agent.round_deadline_ts, self.agent.any_producer_failed)
                     self.agent.add_behaviour(burst)
-                    await asyncio.sleep(10.0)
+                    await asyncio.sleep(offers_timeout)
                 else:
                     print("⚠️  No agents available for auction.\n")
 
                 offers = self.agent.offers_round.get(R, {})
                 reqs = list(self.agent.requests_round.get(R, {}).items())
+                req_lookup = dict(reqs)
                 declined = self.agent.declined_round.get(R, set())
                 
                 print(f"📥 OFFERS RECEIVED ({len(offers)} of {len(sellers)} invited):")
@@ -431,6 +436,7 @@ class GridNodeAgent(spade.agent.Agent):
                 prices_paid = []
                 matched_buyers = set()
                 buyer_fulfillment = {}
+                buyer_received_kw = {buyer: 0.0 for buyer in req_lookup}
                 
                 seller_remaining = {}
                 for seller, offer_data in offers.items():
@@ -461,14 +467,29 @@ class GridNodeAgent(spade.agent.Agent):
                     for price, seller, offer_data in available_sellers:
                         available = seller_remaining[seller]
                         remaining_need = need_kwh - total_bought
+                        remaining_limit = max(0.0, self.agent.transmission_limit_kw - total_bought)
                         
-                        if remaining_need <= 0:
+                        if remaining_need <= 0 or remaining_limit <= 0:
                             break
                         
-                        if available >= remaining_need:
-                            amount = remaining_need
-                        else:
-                            amount = available
+                        intended_amount = min(available, remaining_need)
+                        if intended_amount <= 0:
+                            continue
+                        
+                        amount = min(intended_amount, remaining_limit)
+                        if amount <= 0:
+                            break
+                        
+                        if amount < intended_amount:
+                            log_msg = f"[TRANSMISSION LIMIT] Oferta original de {intended_amount:.1f} kWh limitada para {amount:.1f} kWh."
+                            print(f"        {log_msg}")
+                            self.agent._add_event(
+                                "transmission_limit",
+                                buyer,
+                                {"seller": seller, "original_kwh": intended_amount, "delivered_kwh": amount},
+                                price,
+                                R
+                            )
                         
                         seller_remaining[seller] -= amount
                         total_bought += amount
@@ -478,6 +499,7 @@ class GridNodeAgent(spade.agent.Agent):
                     
                     if total_bought > 0:
                         fulfillment_pct = (total_bought / need_kwh) * 100
+                        buyer_received_kw[buyer] = total_bought
                         buyer_fulfillment[buyer] = fulfillment_pct
                         
                         if fulfillment_pct >= 99.9:
@@ -570,13 +592,14 @@ class GridNodeAgent(spade.agent.Agent):
                     
                     unmet_demand = []
                     for buyer, req_data in reqs:
-                        fulfillment = buyer_fulfillment.get(buyer, 0.0)
-                        if fulfillment < 100.0:
-                            need_kwh = req_data["need_kwh"]
-                            received = need_kwh * (fulfillment / 100.0)
-                            remaining = need_kwh - received
+                        need_kwh = req_data["need_kwh"]
+                        received = buyer_received_kw.get(buyer, 0.0)
+                        remaining = max(0.0, need_kwh - received)
+                        fulfillment = (received / need_kwh * 100) if need_kwh > 0 else 0.0
+                        buyer_fulfillment[buyer] = fulfillment
+                        if remaining > 0.01:
                             price_max = req_data["price_max"]
-                            unmet_demand.append((buyer, remaining, price_max, fulfillment))
+                            unmet_demand.append((buyer, need_kwh, remaining, price_max, fulfillment))
                     
                     surplus_energy = {}
                     for seller, remaining in seller_remaining.items():
@@ -599,15 +622,38 @@ class GridNodeAgent(spade.agent.Agent):
                             print(f"\n💰 EXTERNAL GRID AVAILABLE:")
                             print(f"   Buy: €{self.agent.external_grid_buy_price:.2f}/kWh | Sell: €{self.agent.external_grid_sell_price:.2f}/kWh\n")
                         
-                        for buyer, remaining_need, price_max, current_fulfillment in unmet_demand:
+                        for buyer, need_kwh, remaining_need, price_max, current_fulfillment in unmet_demand:
                             if self.agent.external_grid_sell_price <= price_max:
-                                total_cost = remaining_need * self.agent.external_grid_sell_price
+                                current_received = buyer_received_kw.get(buyer, 0.0)
+                                remaining_limit = max(0.0, self.agent.transmission_limit_kw - current_received)
+                                
+                                if remaining_limit <= 0:
+                                    print(f"  ⚠️ {buyer} already at transmission limit ({self.agent.transmission_limit_kw:.1f} kWh). Skipping external supply.")
+                                    continue
+                                
+                                delivered = min(remaining_need, remaining_limit)
+                                if delivered <= 0:
+                                    continue
+                                
+                                total_cost = delivered * self.agent.external_grid_sell_price
                                 
                                 if current_fulfillment > 0:
-                                    print(f"  ⚡ {buyer} buying additional {remaining_need:.1f} kWh from External Grid @ €{self.agent.external_grid_sell_price:.2f}/kWh")
-                                    print(f"     (completing partially fulfilled order: was {current_fulfillment:.0f}%, now 100%)")
+                                    print(f"  ⚡ {buyer} buying additional {delivered:.1f} kWh from External Grid @ €{self.agent.external_grid_sell_price:.2f}/kWh")
                                 else:
-                                    print(f"  ⚡ {buyer} buying {remaining_need:.1f} kWh from External Grid @ €{self.agent.external_grid_sell_price:.2f}/kWh")
+                                    print(f"  ⚡ {buyer} buying {delivered:.1f} kWh from External Grid @ €{self.agent.external_grid_sell_price:.2f}/kWh")
+                                
+                                if delivered < remaining_need:
+                                    log_msg = f"[TRANSMISSION LIMIT] Oferta original de {remaining_need:.1f} kWh limitada para {delivered:.1f} kWh."
+                                    print(f"     {log_msg}")
+                                    self.agent._add_event(
+                                        "transmission_limit",
+                                        buyer,
+                                        {"seller": "external_grid", "original_kwh": remaining_need, "delivered_kwh": delivered},
+                                        self.agent.external_grid_sell_price,
+                                        R
+                                    )
+                                else:
+                                    print(f"     (completing partially fulfilled order: was {current_fulfillment:.0f}%, now 100%)")
                                 
                                 print(f"     Total cost: €{total_cost:.2f}")
                                 
@@ -616,19 +662,23 @@ class GridNodeAgent(spade.agent.Agent):
                                 buyer_msg.body = json.dumps({
                                     "round_id": R,
                                     "command": "energy_purchased",
-                                    "kw": remaining_need,
+                                    "kw": delivered,
                                     "price": self.agent.external_grid_sell_price,
                                     "from": "external_grid"
                                 })
                                 await self.send(buyer_msg)
                                 
-                                self.agent.ext_grid_total_sold_kwh += remaining_need
+                                buyer_received_kw[buyer] = current_received + delivered
+                                
+                                self.agent.ext_grid_total_sold_kwh += delivered
                                 self.agent.ext_grid_revenue += total_cost
-                                ext_sold_total += remaining_need
+                                ext_sold_total += delivered
                                 ext_sold_value += total_cost
                                 
                                 # Update fulfillment
-                                buyer_fulfillment[buyer] = 100.0
+                                new_total = buyer_received_kw[buyer]
+                                fulfillment_pct = (new_total / need_kwh * 100) if need_kwh > 0 else 0.0
+                                buyer_fulfillment[buyer] = min(100.0, fulfillment_pct)
                             else:
                                 print(f"  ⚠️ {buyer} can't afford External Grid for remaining {remaining_need:.1f} kWh")
                                 print(f"     (€{self.agent.external_grid_sell_price:.2f}/kWh > max €{price_max:.2f}/kWh)")
@@ -669,7 +719,7 @@ class GridNodeAgent(spade.agent.Agent):
                             
                             if len(unmet_demand) > 0:
                                 print(f"  ⚠️  UNMET DEMAND (potential blackout):")
-                                for buyer, remaining, _, fulfillment in unmet_demand:
+                                for buyer, _, remaining, _, fulfillment in unmet_demand:
                                     if fulfillment > 0:
                                         print(f"      {buyer}: {remaining:.1f} kWh NOT SUPPLIED (only {fulfillment:.0f}% fulfilled)")
                                     else:
@@ -704,8 +754,12 @@ class GridNodeAgent(spade.agent.Agent):
                         if state.get("failure_rounds_remaining", 0) == 0:
                             print(f"\n✅ {p_jid} RECOVERED!\n")
                 
-                print(f"\n⏳ Waiting 10 seconds before next round...")
-                await asyncio.sleep(8.0)
+                round_sleep = SIMULATION["ROUND_SLEEP_SECONDS"]
+                print(f"\n⏳ Waiting {round_sleep} seconds before next round...")
+                post_env_sleep = round_sleep * 0.2
+                pre_env_sleep = max(0.0, round_sleep - post_env_sleep)
+                if pre_env_sleep > 0:
+                    await asyncio.sleep(pre_env_sleep)
                 
                 self.agent.round_counter += 1
                 
@@ -719,7 +773,8 @@ class GridNodeAgent(spade.agent.Agent):
                 update_msg.body = json.dumps({"command": "update", "sim_hour": self.agent.sim_hour})
                 await self.send(update_msg)
                 
-                await asyncio.sleep(2.0)
+                if post_env_sleep > 0:
+                    await asyncio.sleep(post_env_sleep)
 
                 
     class PrintAgentStatus(OneShotBehaviour):

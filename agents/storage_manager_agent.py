@@ -6,11 +6,22 @@ import asyncio
 from spade.behaviour import PeriodicBehaviour, OneShotBehaviour, CyclicBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
+from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
 
 class StorageManagerAgent(spade.agent.Agent):
     """Energy Storage Manager agent - Emergency Reserve (50 kWh)."""
 
-    def __init__(self, jid, password, grid_node_jid, soc_init_frac=1.0, capacity_kwh=50.0, ask_price=0.22, price_max=0.30, emergency_only=True):
+    def __init__(
+        self,
+        jid,
+        password,
+        grid_node_jid,
+        soc_init_frac=1.0,
+        capacity_kwh=STORAGE["CAPACITY_KWH"],
+        ask_price=STORAGE["ASK_PRICE"],
+        price_max=STORAGE["MAX_PRICE"],
+        emergency_only=STORAGE["EMERGENCY_ONLY"],
+    ):
         super().__init__(jid, password)
         self.grid_node_jid = grid_node_jid
         self.cap_kwh = float(capacity_kwh)

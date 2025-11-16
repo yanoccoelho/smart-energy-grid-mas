@@ -1,4 +1,5 @@
 from collections import defaultdict
+from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
 
 class PerformanceTracker:
     """Tracks and reports system performance metrics every 5 rounds"""
@@ -25,6 +26,7 @@ class PerformanceTracker:
         # Acompanhamento produtores e emergências
         self.producer_failures = 0
         self.emergency_activations = 0
+        self.report_interval = METRICS["REPORT_INTERVAL_ROUNDS"]
     
     def record_round(self, round_num, round_data):
         """
@@ -71,14 +73,14 @@ class PerformanceTracker:
             self.emergency_activations += 1
         
         # Imprime resumos periódicos a cada 5 rounds
-        if round_num > 0 and round_num % 5 == 0:
+        if self.report_interval > 0 and round_num > 0 and round_num % self.report_interval == 0:
             self.print_periodic_summary(round_num)
     
     def print_periodic_summary(self, round_num):
         """
         Imprime resumo das métricas agrupadas dos últimos 5 rounds
         """
-        start_idx = max(0, round_num - 5)
+        start_idx = max(0, round_num - self.report_interval)
         recent_data = self.rounds_data[start_idx:round_num]
         
         if not recent_data:

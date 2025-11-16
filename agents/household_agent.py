@@ -5,6 +5,7 @@ import spade
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
+from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
 
 class HouseholdAgent(spade.agent.Agent):
     """Household or Prosumer agent."""
@@ -20,18 +21,20 @@ class HouseholdAgent(spade.agent.Agent):
         self.current_demand_kwh = 0.0
         self.current_production_kwh = 0.0
         self.battery_kwh = 0.0
-        self.battery_capacity_kwh = 10.0 if is_prosumer else 0.0
-        self.max_charge_kwh = 3.0
-        self.max_discharge_kwh = 3.0
+        self.battery_capacity_kwh = HOUSEHOLDS["BATTERY_CAPACITY_KWH"] if is_prosumer else 0.0
+        self.max_charge_kwh = HOUSEHOLDS["BATTERY_CHARGE_RATE_KW"]
+        self.max_discharge_kwh = HOUSEHOLDS["BATTERY_DISCHARGE_RATE_KW"]
+        self.battery_efficiency = HOUSEHOLDS["BATTERY_EFFICIENCY"]
 
         if is_prosumer:
-            self.panel_area_m2 = random.uniform(15.0, 25.0)
+            min_area, max_area = HOUSEHOLDS["PANEL_AREA_RANGE_M2"]
+            self.panel_area_m2 = random.uniform(min_area, max_area)
         else:
             self.panel_area_m2 = 0.0
 
         self.solar_irradiance = 0.0
-        self.wind_speed = 0.0
-        self.temperature = 20.0
+        self.wind_speed = ENVIRONMENT["BASE_WIND_SPEED"]
+        self.temperature = ENVIRONMENT["BASE_TEMPERATURE"]
         self.sim_hour = 6
 
         self.active_round_id = None
@@ -47,22 +50,23 @@ class HouseholdAgent(spade.agent.Agent):
     def _update_state(self):
         """Calculate current demand, production, and battery state."""
         hour = self.sim_hour
-        
+        demand_ranges = HOUSEHOLDS["DEMAND_RANGES"]
         if 6 <= hour < 9:
-            base_demand = random.uniform(2.5, 4.0)
-        elif 18 <= hour < 22:
-            base_demand = random.uniform(3.0, 5.0)
+            demand_range = demand_ranges["morning"]
+        elif 18 <= hour < 24:
+            demand_range = demand_ranges["evening"]
         elif 0 <= hour < 6:
-            base_demand = random.uniform(0.5, 1.5)
+            demand_range = demand_ranges["night"]
         else:
-            base_demand = random.uniform(1.5, 3.0)
+            demand_range = demand_ranges["afternoon"]
+        base_demand = random.uniform(*demand_range)
         
         self.current_demand_kwh = base_demand + random.uniform(-0.3, 0.3)
 
         if self.is_prosumer:
             if self.solar_irradiance > 0:
-                solar_efficiency = 0.20
-                max_power_kwh = self.panel_area_m2 * 1.0 * solar_efficiency
+                solar_efficiency = PRODUCERS["SOLAR_EFFICIENCY"]
+                max_power_kwh = self.panel_area_m2 * solar_efficiency
                 self.current_production_kwh = self.solar_irradiance * max_power_kwh
             else:
                 self.current_production_kwh = 0.0
@@ -72,10 +76,16 @@ class HouseholdAgent(spade.agent.Agent):
         net = self.current_production_kwh - self.current_demand_kwh
         if net > 0 and self.battery_kwh < self.battery_capacity_kwh:
             charge = min(net, self.max_charge_kwh, self.battery_capacity_kwh - self.battery_kwh)
-            self.battery_kwh += charge
+            self.battery_kwh += charge * self.battery_efficiency
+            self.battery_kwh = min(self.battery_kwh, self.battery_capacity_kwh)
         elif net < 0 and self.battery_kwh > 0:
-            discharge = min(-net, self.max_discharge_kwh, self.battery_kwh)
-            self.battery_kwh -= discharge
+            available = self.battery_kwh * self.battery_efficiency
+            discharge = min(-net, self.max_discharge_kwh, available)
+            if self.battery_efficiency > 0:
+                consumed = discharge / self.battery_efficiency
+            else:
+                consumed = discharge
+            self.battery_kwh = max(0.0, self.battery_kwh - consumed)
 
     class InitialSetup(OneShotBehaviour):
         async def run(self):

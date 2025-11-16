@@ -1,7 +1,7 @@
 import asyncio
 import time
 import spade
-from config import XMPP_SERVER
+from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
 from agents.household_agent import HouseholdAgent
 from agents.producer_agent import ProducerAgent
 from agents.grid_node_agent import GridNodeAgent
@@ -12,7 +12,9 @@ from agents.environment_agent import EnvironmentAgent
 async def main():
     """
     SMART ENERGY GRID - Multi-Agent Simulation
-    With Emergency Storage System & Producer Failure Simulation
+    failure_prob_pct = PRODUCERS["FAILURE_PROB"] * 100
+    failure_min, failure_max = PRODUCERS["FAILURE_ROUNDS_RANGE"]
+    print(f"??  Producer Failure: {failure_prob_pct:.0f}% chance per round ({failure_min}-{failure_max} rounds offline)\n")  # ? CORRIGIDO: 5% ? 20%
     """
     print("=" * 60)
     print("     SMART ENERGY GRID - Multi-Agent System")
@@ -21,11 +23,12 @@ async def main():
     
     start_time = time.time()
     
-    num_consumers = 5
-    num_prosumers = 2
+    num_consumers = SIMULATION["NUM_CONSUMERS"]
+    num_prosumers = SIMULATION["NUM_PROSUMERS"]
+    xmpp_server = SIMULATION["XMPP_SERVER"]
     
     # Environment JID
-    env_jid = f"environment@{XMPP_SERVER}"
+    env_jid = f"environment@{xmpp_server}"
     
     # Calculate expected agents
     expected_agents = {
@@ -37,15 +40,15 @@ async def main():
     # ✅ EXTERNAL GRID - PREÇOS VARIÁVEIS
     external_grid_config = {
         "enabled": True,
-        "buy_price_min": 0.10,      # Mínimo que paga por surplus
-        "buy_price_max": 0.15,      # Máximo que paga por surplus
-        "sell_price_min": 0.25,     # Mínimo que cobra para vender
-        "sell_price_max": 0.32,     # Máximo que cobra para vender
-        "acceptance_prob": 1.0      # 100% disponível (sem blackout)
+        "buy_price_min": EXTERNAL_GRID["MIN_DYNAMIC_PRICE"],
+        "buy_price_max": EXTERNAL_GRID["SELL_PRICE"],
+        "sell_price_min": EXTERNAL_GRID["BUY_PRICE"],
+        "sell_price_max": EXTERNAL_GRID["MAX_DYNAMIC_PRICE"],
+        "acceptance_prob": EXTERNAL_GRID["ACCEPTANCE_PROB"],
     }
     
     # GRID NODE
-    grid_node_jid = f"grid_node1@{XMPP_SERVER}"
+    grid_node_jid = f"grid_node1@{xmpp_server}"
     grid_node_agent = GridNodeAgent(
         jid=grid_node_jid,
         password="password123",
@@ -56,9 +59,9 @@ async def main():
     
     # ENVIRONMENT AGENT
     broadcast_list = (
-        [f"consumer{i+1}@{XMPP_SERVER}" for i in range(num_consumers)] +
-        [f"prosumer{i+1}@{XMPP_SERVER}" for i in range(num_prosumers)] +
-        [f"solarfarm1@{XMPP_SERVER}", f"windturbine1@{XMPP_SERVER}"]
+        [f"consumer{i+1}@{xmpp_server}" for i in range(num_consumers)] +
+        [f"prosumer{i+1}@{xmpp_server}" for i in range(num_prosumers)] +
+        [f"solarfarm1@{xmpp_server}", f"windturbine1@{xmpp_server}"]
     )
     
     environment_agent = EnvironmentAgent(
@@ -70,7 +73,7 @@ async def main():
     # CONSUMERS - price_max maior para aceitar external grid
     consumers = [
         HouseholdAgent(
-            jid=f"consumer{i+1}@{XMPP_SERVER}",
+            jid=f"consumer{i+1}@{xmpp_server}",
             password="password123",
             grid_node_jid=grid_node_jid,
             is_prosumer=False,
@@ -82,7 +85,7 @@ async def main():
     # PROSUMERS
     prosumers = [
         HouseholdAgent(
-            jid=f"prosumer{i+1}@{XMPP_SERVER}",
+            jid=f"prosumer{i+1}@{xmpp_server}",
             password="password123",
             grid_node_jid=grid_node_jid,
             is_prosumer=True,
@@ -94,33 +97,33 @@ async def main():
     
     # PRODUCERS
     solar_farm = ProducerAgent(
-        jid=f"solarfarm1@{XMPP_SERVER}",
+        jid=f"solarfarm1@{xmpp_server}",
         password="password123",
         grid_node_jid=grid_node_jid,
         production_type="solar",
-        max_capacity_kw=20.0,
+        max_capacity_kw=PRODUCERS["SOLAR_CAPACITY_KW"],
         ask_price=0.18
     )
     
     wind_turbine = ProducerAgent(
-        jid=f"windturbine1@{XMPP_SERVER}",
+        jid=f"windturbine1@{xmpp_server}",
         password="password123",
         grid_node_jid=grid_node_jid,
         production_type="wind",
-        max_capacity_kw=50.0,
+        max_capacity_kw=PRODUCERS["WIND_CAPACITY_KW"],
         ask_price=0.19
     )
     
     # ✅ STORAGE - 50 kWh, 100% FULL, EMERGENCY ONLY
     storage_mgr = StorageManagerAgent(
-        jid=f"storage1@{XMPP_SERVER}",
+        jid=f"storage1@{xmpp_server}",
         password="password123",
         grid_node_jid=grid_node_jid,
         soc_init_frac=1.0,          # 100% charged
-        capacity_kwh=50.0,          # 50 kWh capacity
-        ask_price=0.22,
-        price_max=0.35,
-        emergency_only=True         # Only sells during producer failure
+        capacity_kwh=STORAGE["CAPACITY_KWH"],
+        ask_price=STORAGE["ASK_PRICE"],
+        price_max=STORAGE["MAX_PRICE"],
+        emergency_only=STORAGE["EMERGENCY_ONLY"]         # Only sells during producer failure
     )
     
     # AGENT REGISTRY
@@ -152,7 +155,7 @@ async def main():
     
     setup_time = time.time() - start_time
     print(f"\n✅ All agents started in {setup_time:.2f}s")
-    print(f"   {num_consumers} consumers + {num_prosumers} prosumers + 2 producers + 1 storage (50 kWh)")
+    print(f"   {num_consumers} consumers + {num_prosumers} prosumers + 2 producers + 1 storage ({STORAGE['CAPACITY_KWH']} kWh)")
     print(f"\n🔋 Emergency System Active: Storage reserves energy for producer failures")
     print(f"⚠️  Producer Failure: 20% chance per round (1-4 rounds offline)\n")  # ✅ CORRIGIDO: 5% → 20%
     

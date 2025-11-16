@@ -5,6 +5,7 @@ import spade
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
+from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
 
 class ProducerAgent(spade.agent.Agent):
     """Producer agent (solar or wind) with failure simulation."""
@@ -38,11 +39,12 @@ class ProducerAgent(spade.agent.Agent):
         if not self.is_operational:
             self.current_production_kwh = 0.0
             return
-        
+        noise_min, noise_max = PRODUCERS["PRODUCTION_NOISE_RANGE"]
+        noise_factor = random.uniform(noise_min, noise_max)
         if self.production_type == "solar":
             if self.solar_irradiance > 0:
-                efficiency = 0.20
-                prod_kwh = self.solar_irradiance * efficiency * self.max_capacity_kwh
+                efficiency = PRODUCERS["SOLAR_EFFICIENCY"]
+                prod_kwh = self.solar_irradiance * efficiency * self.max_capacity_kwh * noise_factor
                 self.current_production_kwh = min(prod_kwh, self.max_capacity_kwh)
             else:
                 self.current_production_kwh = 0.0
@@ -52,7 +54,9 @@ class ProducerAgent(spade.agent.Agent):
                     power_fraction = (self.wind_speed - 3.0) / 9.0
                 else:
                     power_fraction = 1.0
-                self.current_production_kwh = power_fraction * self.max_capacity_kwh
+                capacity_factor = PRODUCERS["WIND_CAPACITY_FACTOR"]
+                prod_kwh = power_fraction * capacity_factor * self.max_capacity_kwh * noise_factor
+                self.current_production_kwh = min(prod_kwh, self.max_capacity_kwh)
             else:
                 self.current_production_kwh = 0.0
 

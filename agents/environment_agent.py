@@ -4,6 +4,7 @@ import random
 import spade
 from spade.behaviour import CyclicBehaviour
 from spade.message import Message
+from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
 
 class EnvironmentAgent(spade.agent.Agent):
     """Environment Agent - Simulates environmental conditions."""
@@ -11,9 +12,9 @@ class EnvironmentAgent(spade.agent.Agent):
     def __init__(self, jid, password, broadcast_list):
         super().__init__(jid, password)
         self.broadcast_list = broadcast_list
-        self.temperature_c = 20.0  # Starting temperature
+        self.temperature_c = ENVIRONMENT["BASE_TEMPERATURE"]
         self.solar_irradiance = 0.8  # 0-1 range
-        self.wind_speed = 5.0
+        self.wind_speed = ENVIRONMENT["BASE_WIND_SPEED"]
 
     async def setup(self):
         """Setup - listen for update requests from GridNode."""
@@ -31,28 +32,26 @@ class EnvironmentAgent(spade.agent.Agent):
             self.solar_irradiance = 0.0
 
         # Wind speed (gaussian distribution)
-        self.wind_speed = max(0.0, random.gauss(6, 2))
+        base_wind = ENVIRONMENT["BASE_WIND_SPEED"]
+        wind_noise_min, wind_noise_max = ENVIRONMENT["WIND_NOISE_RANGE"]
+        self.wind_speed = max(0.0, base_wind + random.uniform(wind_noise_min, wind_noise_max))
 
         # Temperature based on time of day (realistic daily cycle)
+        base_temp = ENVIRONMENT["BASE_TEMPERATURE"]
+        temp_variation = ENVIRONMENT["TEMP_VARIATION"]
         if 0 <= sim_hour < 6:
-            # Madrugada (00h-06h): 16-18°C
-            base_temp = random.uniform(16.0, 18.0)
+            offset = -0.6
         elif 6 <= sim_hour < 9:
-            # Manhã (06h-09h): 18-22°C
-            base_temp = random.uniform(18.0, 22.0)
+            offset = -0.2
         elif 9 <= sim_hour < 15:
-            # Meio-dia/Tarde (09h-15h): 23-27°C
-            base_temp = random.uniform(23.0, 27.0)
+            offset = 0.4
         elif 15 <= sim_hour < 18:
-            # Final da tarde (15h-18h): 21-25°C
-            base_temp = random.uniform(21.0, 25.0)
+            offset = 0.2
         else:  # 18h-00h
-            # Noite (18h-00h): 18-21°C
-            base_temp = random.uniform(18.0, 21.0)
-        
-        # Add small random variation (±0.5°C)
-        self.temperature_c = base_temp + random.uniform(-0.5, 0.5)
-        self.temperature_c = round(self.temperature_c, 1)
+            offset = -0.1
+        temp_center = base_temp + offset * temp_variation
+        temp_range = temp_variation * 0.2
+        self.temperature_c = round(random.uniform(temp_center - temp_range, temp_center + temp_range), 1)
 
     class UpdateListener(CyclicBehaviour):
         """Listen for update requests from GridNode."""
