@@ -16,10 +16,7 @@ from agents.environment_agent import EnvironmentAgent
 
 
 def load_available_scenarios():
-    """
-    Scans the 'scenarios' folder and dynamically loads scenario files.
-    Reads SCENARIO_CONFIG['NAME'] from each one.
-    """
+    """Scans the 'scenarios' folder and dynamically loads scenario files."""
     scenarios = {}
 
     folder = "scenarios"
@@ -28,7 +25,6 @@ def load_available_scenarios():
         if not filename.endswith(".py"):
             continue
 
-        # Ignore base config
         if filename == "base_config.py":
             continue
 
@@ -50,9 +46,7 @@ def load_available_scenarios():
 
 
 def ask_scenario():
-    """
-    Displays a menu where the user chooses which scenario to run.
-    """
+    """Displays menu for scenario selection."""
     scenarios = load_available_scenarios()
 
     print("\nSelect a scenario:\n")
@@ -72,10 +66,33 @@ def ask_scenario():
     return scenario_key
 
 
+def ask_simulation_overrides(config):
+    """Allows user to override NUM_CONSUMERS and NUM_PROSUMERS."""
+    print("\nDo you want to customize the simulation parameters?")
+    choice = input("Type 'y' to customize, or 'd' to keep defaults: ").strip().lower()
+
+    if choice != "y":
+        print("✔ Using default SIMULATION values.\n")
+        return config  # no change
+
+    # ask one by one
+    try:
+        new_consumers = int(input(f"Enter number of consumers (default {config['SIMULATION']['NUM_CONSUMERS']}): "))
+        new_prosumers = int(input(f"Enter number of prosumers (default {config['SIMULATION']['NUM_PROSUMERS']}): "))
+
+        config["SIMULATION"]["NUM_CONSUMERS"] = new_consumers
+        config["SIMULATION"]["NUM_PROSUMERS"] = new_prosumers
+
+        print("\n✔ Simulation parameters updated.\n")
+
+    except ValueError:
+        print("❌ Invalid number. Keeping defaults.\n")
+
+    return config
+
+
 def load_scenario(scenario_name: str):
-    """
-    Imports scenario file dynamically and applies overrides to SCENARIO_CONFIG.
-    """
+    """Imports scenario file dynamically and applies overrides."""
     if scenario_name == "base_config":
         print("\n✔️ Using base configuration.\n")
         return
@@ -89,13 +106,11 @@ def load_scenario(scenario_name: str):
         exit(1)
 
 
+# ==========================
 # MAIN SIMULATION
+# ==========================
 
 async def main(config):
-    scenario_name = ask_scenario()
-    load_scenario(scenario_name)
-
-
     print("=" * 60)
     print("     SMART ENERGY GRID - Multi-Agent System")
     print("=" * 60)
@@ -140,9 +155,9 @@ async def main(config):
 
     # ENVIRONMENT
     broadcast_list = (
-        [f"consumer{i+1}@{xmpp_server}" for i in range(num_consumers)] +
-        [f"prosumer{i+1}@{xmpp_server}" for i in range(num_prosumers)] +
-        [f"solarfarm1@{xmpp_server}", f"windturbine1@{xmpp_server}"]
+            [f"consumer{i+1}@{xmpp_server}" for i in range(num_consumers)] +
+            [f"prosumer{i+1}@{xmpp_server}" for i in range(num_prosumers)] +
+            [f"solarfarm1@{xmpp_server}", f"windturbine1@{xmpp_server}"]
     )
 
     environment_agent = EnvironmentAgent(
@@ -257,4 +272,9 @@ async def main(config):
 
 
 if __name__ == "__main__":
+    scenario_name = ask_scenario()
+    load_scenario(scenario_name)
+
+    # Ask for manual override
+    config = ask_simulation_overrides(SCENARIO_CONFIG)
     spade.run(main(SCENARIO_CONFIG))
