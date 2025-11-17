@@ -164,144 +164,177 @@ async def main(config):
     start_time = time.time()
 
     # Extract core simulation parameters from config
-    num_consumers = config["SIMULATION"]["NUM_CONSUMERS"]
-    num_prosumers = config["SIMULATION"]["NUM_PROSUMERS"]
     xmpp_server = config["SIMULATION"]["XMPP_SERVER"]
+    port = 10000
 
     # Environment agent JID template
     env_jid = f"environment@{xmpp_server}"
+   
+    agents = []
+    global_broadcast_list = []
 
     # Expected agents count used by the GridNodeAgent for startup sync
-    expected_agents = {
-        "households": num_consumers + num_prosumers,
-        "producers": 2,
-        "storage": 1,
-    }
+    for neighborhood in config["NEIGHBORHOODS"]:
+        neighborhood_info = config["NEIGHBORHOODS"][neighborhood]
 
-    # External grid pricing config (passed to GridNodeAgent)
-    external_grid_config = {
-        "enabled": True,
-        "buy_price_min": config["EXTERNAL_GRID"]["MIN_DYNAMIC_PRICE"],
-        "buy_price_max": config["EXTERNAL_GRID"]["SELL_PRICE"],
-        "sell_price_min": config["EXTERNAL_GRID"]["BUY_PRICE"],
-        "sell_price_max": config["EXTERNAL_GRID"]["MAX_DYNAMIC_PRICE"],
-        "acceptance_prob": config["EXTERNAL_GRID"]["ACCEPTANCE_PROB"],
-    }
+        num_consumers = neighborhood_info["NUM_CONSUMERS"]
+        num_prosumers = neighborhood_info["NUM_PROSUMERS"]
+        num_solar_farm = neighborhood_info["PRODUCERS"]["SOLAR_FARMS"]
+        num_wind_turbine = neighborhood_info["PRODUCERS"]["WIND_TURBINES"]
+        num_storages = neighborhood_info["NUM_STORAGES"]
 
-    # GRID NODE AGENT
-    grid_node_jid = f"grid_node1@{xmpp_server}"
-    grid_node_agent = GridNodeAgent(
-        jid=grid_node_jid,
-        password="password123",
-        expected_agents=expected_agents,
-        env_jid=env_jid,
-        external_grid_config=external_grid_config,
-        config=config,
-    )
+        expected_agents = {
+            "households": num_consumers + num_prosumers,
+            "producers": num_solar_farm + num_wind_turbine,
+            "storage": num_storages,
+        }
 
-    # ENVIRONMENT AGENT
-    # Composes list of all agents who should receive weather/environment updates
-    broadcast_list = (
-        [f"consumer{i+1}@{xmpp_server}" for i in range(num_consumers)]
-        + [f"prosumer{i+1}@{xmpp_server}" for i in range(num_prosumers)]
-        + [f"solarfarm1@{xmpp_server}", f"windturbine1@{xmpp_server}"]
-    )
+        # External grid pricing config (passed to GridNodeAgent)
+        external_grid_config = {
+            "enabled": True,
+            "buy_price_min": config["EXTERNAL_GRID"]["MIN_DYNAMIC_PRICE"],
+            "buy_price_max": config["EXTERNAL_GRID"]["SELL_PRICE"],
+            "sell_price_min": config["EXTERNAL_GRID"]["BUY_PRICE"],
+            "sell_price_max": config["EXTERNAL_GRID"]["MAX_DYNAMIC_PRICE"],
+            "acceptance_prob": config["EXTERNAL_GRID"]["ACCEPTANCE_PROB"],
+        }
 
+        # GRID NODE AGENT
+        grid_node_jid = f"grid_node_{neighborhood}@{xmpp_server}"
+        grid_node_agent = GridNodeAgent(
+            jid=grid_node_jid,
+            password="password123",
+            expected_agents=expected_agents,
+            neighborhood=neighborhood,
+            env_jid=env_jid,
+            external_grid_config=external_grid_config,
+            config=config,
+        )
+
+        # Composes list of all agents who should receive weather/environment updates
+        global_broadcast_list  += (
+            [f"prosumer_{neighborhood}_{i+1}@{xmpp_server}" for i in range(num_prosumers)]
+            + [f"solarfarm_{neighborhood}_{i+1}@{xmpp_server}" for i in range(num_solar_farm)]
+            + [f"windturbine_{neighborhood}_{i+1}@{xmpp_server}" for i in range(num_wind_turbine)]
+        )
+
+        # HOUSEHOLD AGENTS (Consumers + Prosumers)
+        consumers = [
+            HouseholdAgent(
+                jid=f"consumer_{neighborhood}_{i+1}@{xmpp_server}",
+                password="password123",
+                grid_node_jid=grid_node_jid,
+                is_prosumer=False,
+                price_max=0.35,
+                config=config,
+            )
+            for i in range(num_consumers)
+        ]
+
+        prosumers = [
+            HouseholdAgent(
+                jid=f"prosumer_{neighborhood}_{i+1}@{xmpp_server}",
+                password="password123",
+                grid_node_jid=grid_node_jid,
+                is_prosumer=True,
+                price_max=0.35,
+                ask_price=0.20,
+                config=config,
+            )
+            for i in range(num_prosumers)
+        ]
+
+        # PRODUCER AGENTS (Solar + Wind)
+        solar_farms = [
+            ProducerAgent(
+                jid=f"solarfarm_{neighborhood}_{i+1}@{xmpp_server}",
+                password="password123",
+                grid_node_jid=grid_node_jid,
+                production_type="solar",
+                max_capacity_kw=config["PRODUCERS"]["SOLAR_CAPACITY_KW"],
+                ask_price=0.18,
+                config=config,
+            )
+            for i in range(num_solar_farm)
+        ]
+
+
+        wind_turbines = [
+            ProducerAgent(
+                jid=f"windturbine_{neighborhood}_{i+1}@{xmpp_server}",
+                password="password123",
+                grid_node_jid=grid_node_jid,
+                production_type="wind",
+                max_capacity_kw=config["PRODUCERS"]["WIND_CAPACITY_KW"],
+                ask_price=0.19,
+                config=config,
+            )
+            for i in range(num_wind_turbine)
+        ]
+
+        # STORAGE MANAGER AGENT
+        storage_mgrs = [
+            StorageManagerAgent(
+                jid=f"storage_{neighborhood}_{i+1}@{xmpp_server}",
+                password="password123",
+                grid_node_jid=grid_node_jid,
+                soc_init_frac=1.0,  # fully charged at start
+                config=config,
+            )
+            for i in range(num_storages)
+        ]
+
+        # List of all agents to start + assign web ports
+        agents.append(("grid_node", grid_node_agent, port))
+        port += 1
+
+        # Add consumers
+        for i, consumer in enumerate(consumers, start=1):
+            agents.append((f"consumer_{neighborhood}_{i}", consumer, port))
+            port += 1
+
+        # Add prosumers
+        for i, prosumer in enumerate(prosumers, start=1):
+            agents.append((f"prosumer_{neighborhood}_{i}", prosumer, port))
+            port += 1
+
+        # Add solar producers
+        for i, solar_farm in enumerate(solar_farms, start=1):
+            agents.append((f"solarfarm_{neighborhood}_{i}", solar_farm, port))
+            port += 1
+
+        # Add wind producers
+        for i, wind_turbine in enumerate(wind_turbines, start=1):
+            agents.append((f"windturbine_{neighborhood}_{i}", wind_turbine, port))
+            port += 1
+
+        # Add storage
+        for i, storage_mgr in enumerate(storage_mgrs, start=1):
+            agents.append((f"storage_{neighborhood}_{i}", storage_mgr, port))
+            port += 1
+
+    # Environment Agent
     environment_agent = EnvironmentAgent(
         jid=env_jid,
         password="password123",
-        broadcast_list=broadcast_list,
+        broadcast_list=global_broadcast_list,
         config=config,
     )
+    
 
-    # HOUSEHOLD AGENTS (Consumers + Prosumers)
-    consumers = [
-        HouseholdAgent(
-            jid=f"consumer{i+1}@{xmpp_server}",
-            password="password123",
-            grid_node_jid=grid_node_jid,
-            is_prosumer=False,
-            price_max=0.35,
-            config=config,
-        )
-        for i in range(num_consumers)
-    ]
+    # --- Start Environment FIRST ---
+    await environment_agent.start(auto_register=True)
+    environment_agent.web.start(hostname="127.0.0.1", port=port)
+    print(f"[Init] Environment started at port {port}")
+    port += 1
 
-    prosumers = [
-        HouseholdAgent(
-            jid=f"prosumer{i+1}@{xmpp_server}",
-            password="password123",
-            grid_node_jid=grid_node_jid,
-            is_prosumer=True,
-            price_max=0.35,
-            ask_price=0.20,
-            config=config,
-        )
-        for i in range(num_prosumers)
-    ]
+    # Wait so behaviours finish loading
+    await asyncio.sleep(2)
 
-    # PRODUCER AGENTS (Solar + Wind)
-    solar_farm = ProducerAgent(
-        jid=f"solarfarm1@{xmpp_server}",
-        password="password123",
-        grid_node_jid=grid_node_jid,
-        production_type="solar",
-        max_capacity_kw=config["PRODUCERS"]["SOLAR_CAPACITY_KW"],
-        ask_price=0.18,
-        config=config,
-    )
-
-    wind_turbine = ProducerAgent(
-        jid=f"windturbine1@{xmpp_server}",
-        password="password123",
-        grid_node_jid=grid_node_jid,
-        production_type="wind",
-        max_capacity_kw=config["PRODUCERS"]["WIND_CAPACITY_KW"],
-        ask_price=0.19,
-        config=config,
-    )
-
-    # STORAGE MANAGER AGENT
-    storage_mgr = StorageManagerAgent(
-        jid=f"storage1@{xmpp_server}",
-        password="password123",
-        grid_node_jid=grid_node_jid,
-        soc_init_frac=1.0,  # fully charged at start
-        config=config,
-    )
-
-    # List of all agents to start + assign web ports
-    agents = [
-        ("grid_node", grid_node_agent, 10000),
-        ("environment", environment_agent, 10001),
-    ]
-
-    port = 10002  # incremental port for each agent’s web dashboard
-
-    # Add consumers
-    for i, consumer in enumerate(consumers, start=1):
-        agents.append((f"consumer{i}", consumer, port))
-        port += 1
-
-    # Add prosumers
-    for i, prosumer in enumerate(prosumers, start=1):
-        agents.append((f"prosumer{i}", prosumer, port))
-        port += 1
-
-    # Add producers + storage
-    agents.extend(
-        [
-            ("solarfarm1", solar_farm, port),
-            ("windturbine1", wind_turbine, port + 1),
-            ("storage1", storage_mgr, port + 2),
-        ]
-    )
-
-    # START ALL AGENTS + WEB UI
+    # 2) start all remaining agents
     for name, agent, port_num in agents:
-        await agent.start(auto_register=True)  # start SPADE agent
-        agent.web.start(hostname="127.0.0.1", port=port_num)  # start dashboard
-        print(f"✅ {name:15} started - Web UI: http://127.0.0.1:{port_num}")
+        await agent.start(auto_register=True)
+        agent.web.start(hostname="127.0.0.1", port=port_num)
 
     setup_time = time.time() - start_time
     print(f"\n✔ All agents started in {setup_time:.2f}s\n")

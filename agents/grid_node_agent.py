@@ -39,10 +39,11 @@ class GridNodeAgent(spade.agent.Agent):
             Defaults to SCENARIO_CONFIG.
     """
 
-    def __init__(self, jid, password, expected_agents, env_jid,
+    def __init__(self, jid, password, expected_agents, env_jid, neighborhood,
                  external_grid_config=None, config=SCENARIO_CONFIG):
         super().__init__(jid, password)
         self.expected_agents = expected_agents
+        self.neighborhood=neighborhood
         self.env_jid = env_jid
         self.config = config
         self.transmission_limit_kw = self.config["SIMULATION"]["TRANSMISSION_LIMIT_KW"]

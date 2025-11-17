@@ -6,11 +6,54 @@ BASE_SCENARIO_CONFIG = {
     "DESCRIPTION": "Default smart grid configuration without scenario overrides.",
     "SIMULATION": {
         "XMPP_SERVER": "localhost",
-        "NUM_CONSUMERS": 5,
-        "NUM_PROSUMERS": 2,
         "ROUND_SLEEP_SECONDS": 10,
         "OFFERS_TIMEOUT": 10,
         "TRANSMISSION_LIMIT_KW": 3.0,
+    },
+
+    "NEIGHBORHOODS": {
+        "N1": {
+            "NAME": "North District",
+            "NEIGHBORS": ["N2"],
+
+            "NUM_CONSUMERS": 3,
+            "NUM_PROSUMERS": 1,
+            "NUM_STORAGES": 1, 
+
+            "PRODUCERS": {
+                "SOLAR_FARMS": 1,
+                "WIND_TURBINES": 0
+            },
+        },
+
+        "N2": {
+            "NAME": "South District",
+            "NEIGHBORS": ["N1", "N3"],
+
+            "NUM_CONSUMERS": 2,
+            "NUM_PROSUMERS": 1,
+            "NUM_STORAGES": 0,
+
+            "PRODUCERS": {
+                "SOLAR_FARMS": 0,
+                "WIND_TURBINES": 1
+            },
+        },
+
+        # "N3": {
+        #     "NAME": "West District",
+        #     "NEIGHBORS": ["N2"],
+
+        #     "NUM_CONSUMERS": 1,
+        #     "NUM_PROSUMERS": 0,
+        #     "NUM_STORAGES": 2,
+
+        #     "PRODUCERS": {
+        #         "SOLAR_FARMS": 1,
+        #         "WIND_TURBINES": 1
+        #     },
+
+        # }
     },
 
     "EXTERNAL_GRID": {
