@@ -1,4 +1,7 @@
-SCENARIO_CONFIG = {
+from copy import deepcopy
+
+
+BASE_SCENARIO_CONFIG = {
     "NAME": "Base configuration",
     "DESCRIPTION": "Default smart grid configuration without scenario overrides.",
     "SIMULATION": {
@@ -60,3 +63,13 @@ SCENARIO_CONFIG = {
         "REPORT_INTERVAL_ROUNDS": 5,
     }
 }
+
+
+def clone_config():
+    """Return a deep copy of the base scenario configuration."""
+    return deepcopy(BASE_SCENARIO_CONFIG)
+
+
+# Backwards compatibility: modules importing SCENARIO_CONFIG directly
+# still receive an isolated copy of the base configuration.
+SCENARIO_CONFIG = clone_config()

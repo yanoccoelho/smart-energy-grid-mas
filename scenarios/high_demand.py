@@ -1,4 +1,6 @@
-from .base_config import SCENARIO_CONFIG
+from .base_config import clone_config
+
+SCENARIO_CONFIG = clone_config()
 
 SCENARIO_CONFIG["NAME"] = "High Demand Scenario"
 SCENARIO_CONFIG["DESCRIPTION"] = "All households experience a significant increase in consumption, doubling energy demand across every time period."

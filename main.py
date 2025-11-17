@@ -16,9 +16,10 @@ import time
 import spade
 import os
 import importlib
+from copy import deepcopy
 
 # Load base config object
-from scenarios.base_config import SCENARIO_CONFIG
+from scenarios.base_config import clone_config
 
 # Agent imports
 from agents.household_agent import HouseholdAgent
@@ -134,12 +135,14 @@ def load_scenario(scenario_name: str):
     """
     if scenario_name == "base_config":
         print("\n✔️ Using base configuration.\n")
-        return
+        return clone_config()
 
     try:
         module = importlib.import_module(f"scenarios.{scenario_name}")
-        print(f"\nScenario selected: {module.SCENARIO_CONFIG['NAME']}")
-        print(f"{module.SCENARIO_CONFIG['DESCRIPTION']}\n")
+        scenario_config = deepcopy(module.SCENARIO_CONFIG)
+        print(f"\nScenario selected: {scenario_config['NAME']}")
+        print(f"{scenario_config['DESCRIPTION']}\n")
+        return scenario_config
     except Exception as e:
         print(f"❌ Error loading scenario: {e}")
         exit(1)
@@ -324,10 +327,10 @@ async def main(config):
 
 if __name__ == "__main__":
     scenario_name = ask_scenario()
-    load_scenario(scenario_name)
+    scenario_config = load_scenario(scenario_name)
 
     # Optional parameter override
-    config = ask_simulation_overrides(SCENARIO_CONFIG)
+    config = ask_simulation_overrides(scenario_config)
 
     # Launch main coroutine using SPADE's event loop
-    spade.run(main(SCENARIO_CONFIG))
+    spade.run(main(config))

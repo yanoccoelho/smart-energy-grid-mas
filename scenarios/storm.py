@@ -1,4 +1,6 @@
-from .base_config import SCENARIO_CONFIG
+from .base_config import clone_config
+
+SCENARIO_CONFIG = clone_config()
 
 SCENARIO_CONFIG["NAME"] = "Storm Scenario"
 SCENARIO_CONFIG["DESCRIPTION"] = "A severe storm disrupts generation: solar production collapses to 20% while wind output spikes to extreme levels, creating unstable supply conditions."

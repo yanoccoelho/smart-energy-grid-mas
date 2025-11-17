@@ -1,4 +1,6 @@
-from .base_config import SCENARIO_CONFIG
+from .base_config import clone_config
+
+SCENARIO_CONFIG = clone_config()
 
 SCENARIO_CONFIG["NAME"] = "External Grid Failure"
 SCENARIO_CONFIG["DESCRIPTION"] = "The external grid becomes unavailable, forcing the microgrid to operate in island mode without importing energy."

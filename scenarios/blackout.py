@@ -1,4 +1,6 @@
-from .base_config import SCENARIO_CONFIG
+from .base_config import clone_config
+
+SCENARIO_CONFIG = clone_config()
 
 SCENARIO_CONFIG["NAME"] = "Blackout Scenario"
 SCENARIO_CONFIG["DESCRIPTION"] = "Complete blackout: both solar and wind generation drop to zero, forcing total reliance on storage and external grid."

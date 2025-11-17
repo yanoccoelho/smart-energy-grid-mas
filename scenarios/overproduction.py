@@ -1,4 +1,6 @@
-from .base_config import SCENARIO_CONFIG
+from .base_config import clone_config
+
+SCENARIO_CONFIG = clone_config()
 
 SCENARIO_CONFIG["NAME"] = "Overproduction Scenario"
 SCENARIO_CONFIG["DESCRIPTION"] = "Solar and wind generation are significantly boosted, creating an energy surplus that tests storage, pricing, and export behavior."

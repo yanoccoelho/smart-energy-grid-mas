@@ -1,4 +1,6 @@
-from .base_config import SCENARIO_CONFIG
+from .base_config import clone_config
+
+SCENARIO_CONFIG = clone_config()
 
 SCENARIO_CONFIG["NAME"] = "Low Demand Scenario"
 SCENARIO_CONFIG["DESCRIPTION"] = "Household energy consumption is reduced across all time periods, decreasing demand by 40% throughout the microgrid."
