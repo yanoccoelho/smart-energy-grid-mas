@@ -8,26 +8,27 @@ from spade.behaviour import CyclicBehaviour, OneShotBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
 from agents.performance_metrics import PerformanceTracker
-from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
+from scenarios.base_config import SCENARIO_CONFIG
 
 
 class GridNodeAgent(spade.agent.Agent):
     """Grid Node Agent - Market Coordinator with Failure Management"""
 
-    def __init__(self, jid, password, expected_agents, env_jid, external_grid_config=None):
+    def __init__(self, jid, password, expected_agents, env_jid, external_grid_config=None, config=SCENARIO_CONFIG):
         super().__init__(jid, password)
         self.expected_agents = expected_agents
         self.env_jid = env_jid
-        self.transmission_limit_kw = SIMULATION["TRANSMISSION_LIMIT_KW"]
+        self.config=config
+        self.transmission_limit_kw = self.config["SIMULATION"]["TRANSMISSION_LIMIT_KW"]
 
         if external_grid_config is None:
             external_grid_config = {
                 "enabled": True,
-                "buy_price_min": EXTERNAL_GRID["MIN_DYNAMIC_PRICE"],
-                "buy_price_max": EXTERNAL_GRID["SELL_PRICE"],
-                "sell_price_min": EXTERNAL_GRID["BUY_PRICE"],
-                "sell_price_max": EXTERNAL_GRID["MAX_DYNAMIC_PRICE"],
-                "acceptance_prob": EXTERNAL_GRID["ACCEPTANCE_PROB"]
+                "buy_price_min": config["EXTERNAL_GRID"]["MIN_DYNAMIC_PRICE"],
+                "buy_price_max": config["EXTERNAL_GRID"]["SELL_PRICE"],
+                "sell_price_min": config["EXTERNAL_GRID"]["BUY_PRICE"],
+                "sell_price_max": config["EXTERNAL_GRID"]["MAX_DYNAMIC_PRICE"],
+                "acceptance_prob": config["EXTERNAL_GRID"]["ACCEPTANCE_PROB"]
             }
 
         self.external_grid_enabled = external_grid_config.get("enabled", True)
@@ -45,7 +46,7 @@ class GridNodeAgent(spade.agent.Agent):
         self.ext_grid_rounds_available = 0
         self.ext_grid_rounds_unavailable = 0
 
-        self.producer_failure_probability = PRODUCERS["FAILURE_PROB"]
+        self.producer_failure_probability = self.config["PRODUCERS"]["FAILURE_PROB"]
         self.any_producer_failed = False
         self.performance_tracker = PerformanceTracker()
 
@@ -131,7 +132,7 @@ class GridNodeAgent(spade.agent.Agent):
         for p_jid, state in self.producers_state.items():
             if state.get("is_operational", True):
                 if random.random() < self.producer_failure_probability:
-                    min_rounds, max_rounds = PRODUCERS["FAILURE_ROUNDS_RANGE"]
+                    min_rounds, max_rounds = self.config["PRODUCERS"]["FAILURE_ROUNDS_RANGE"]
                     failure_duration = random.randint(min_rounds, max_rounds)
                     state["is_operational"] = False
                     state["failure_rounds_remaining"] = failure_duration
@@ -399,7 +400,7 @@ class GridNodeAgent(spade.agent.Agent):
                     print(f"🔨 AUCTION PROCESS:\n")
                     print(f"→ Broadcasting CFP to eligible agents...")
                     print(f"  {len(sellers)} eligible sellers | {num_potential_buyers} potential buyers")
-                    offers_timeout = SIMULATION["OFFERS_TIMEOUT"]
+                    offers_timeout = self.agent.config["SIMULATION"]["OFFERS_TIMEOUT"]
                     print(f"  Waiting for responses ({offers_timeout}s deadline)...\n")
                     
                     self.agent.round_deadline_ts = time.time() + offers_timeout
@@ -754,7 +755,7 @@ class GridNodeAgent(spade.agent.Agent):
                         if state.get("failure_rounds_remaining", 0) == 0:
                             print(f"\n✅ {p_jid} RECOVERED!\n")
                 
-                round_sleep = SIMULATION["ROUND_SLEEP_SECONDS"]
+                round_sleep = self.agent.config["SIMULATION"]["ROUND_SLEEP_SECONDS"]
                 print(f"\n⏳ Waiting {round_sleep} seconds before next round...")
                 post_env_sleep = round_sleep * 0.2
                 pre_env_sleep = max(0.0, round_sleep - post_env_sleep)

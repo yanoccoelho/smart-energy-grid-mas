@@ -5,12 +5,12 @@ import spade
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
-from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
+from scenarios.base_config import SCENARIO_CONFIG
 
 class ProducerAgent(spade.agent.Agent):
     """Producer agent (solar or wind) with failure simulation."""
 
-    def __init__(self, jid, password, grid_node_jid, production_type="solar", max_capacity_kw=100.0, ask_price=0.18, response_probability=0.85):
+    def __init__(self, jid, password, grid_node_jid, production_type="solar", max_capacity_kw=100.0, ask_price=0.18, response_probability=0.85, config=SCENARIO_CONFIG):
         super().__init__(jid, password)
         self.grid_node_jid = grid_node_jid
         self.production_type = production_type
@@ -18,6 +18,7 @@ class ProducerAgent(spade.agent.Agent):
         self.current_production_kwh = 0.0
         self.ask_price = float(ask_price)
         self.response_probability = float(response_probability)
+        self.config=config
         
         self.is_operational = True
         self.failure_rounds_remaining = 0
@@ -30,6 +31,7 @@ class ProducerAgent(spade.agent.Agent):
         self.temperature = 20.0
         self.db_logger = DBLogger()
 
+
     async def setup(self):
         self.add_behaviour(self.InitialSetup())
         self.add_behaviour(self.RoundReceiver())
@@ -39,11 +41,11 @@ class ProducerAgent(spade.agent.Agent):
         if not self.is_operational:
             self.current_production_kwh = 0.0
             return
-        noise_min, noise_max = PRODUCERS["PRODUCTION_NOISE_RANGE"]
+        noise_min, noise_max = self.config["PRODUCERS"]["PRODUCTION_NOISE_RANGE"]
         noise_factor = random.uniform(noise_min, noise_max)
         if self.production_type == "solar":
             if self.solar_irradiance > 0:
-                efficiency = PRODUCERS["SOLAR_EFFICIENCY"]
+                efficiency = self.config["PRODUCERS"]["SOLAR_EFFICIENCY"]
                 prod_kwh = self.solar_irradiance * efficiency * self.max_capacity_kwh * noise_factor
                 self.current_production_kwh = min(prod_kwh, self.max_capacity_kwh)
             else:
@@ -54,7 +56,7 @@ class ProducerAgent(spade.agent.Agent):
                     power_fraction = (self.wind_speed - 3.0) / 9.0
                 else:
                     power_fraction = 1.0
-                capacity_factor = PRODUCERS["WIND_CAPACITY_FACTOR"]
+                capacity_factor = self.config["PRODUCERS"]["WIND_CAPACITY_FACTOR"]
                 prod_kwh = power_fraction * capacity_factor * self.max_capacity_kwh * noise_factor
                 self.current_production_kwh = min(prod_kwh, self.max_capacity_kwh)
             else:

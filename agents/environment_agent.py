@@ -4,17 +4,18 @@ import random
 import spade
 from spade.behaviour import CyclicBehaviour
 from spade.message import Message
-from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
+from scenarios.base_config import SCENARIO_CONFIG
 
 class EnvironmentAgent(spade.agent.Agent):
     """Environment Agent - Simulates environmental conditions."""
 
-    def __init__(self, jid, password, broadcast_list):
+    def __init__(self, jid, password, broadcast_list, config=SCENARIO_CONFIG):
         super().__init__(jid, password)
         self.broadcast_list = broadcast_list
-        self.temperature_c = ENVIRONMENT["BASE_TEMPERATURE"]
+        self.config = config
+        self.temperature_c = self.config["ENVIRONMENT"]["BASE_TEMPERATURE"]
         self.solar_irradiance = 0.8  # 0-1 range
-        self.wind_speed = ENVIRONMENT["BASE_WIND_SPEED"]
+        self.wind_speed = self.config["ENVIRONMENT"]["BASE_WIND_SPEED"]
 
     async def setup(self):
         """Setup - listen for update requests from GridNode."""
@@ -32,13 +33,13 @@ class EnvironmentAgent(spade.agent.Agent):
             self.solar_irradiance = 0.0
 
         # Wind speed (gaussian distribution)
-        base_wind = ENVIRONMENT["BASE_WIND_SPEED"]
-        wind_noise_min, wind_noise_max = ENVIRONMENT["WIND_NOISE_RANGE"]
+        base_wind = self.config["ENVIRONMENT"]["BASE_WIND_SPEED"]
+        wind_noise_min, wind_noise_max = self.config["ENVIRONMENT"]["WIND_NOISE_RANGE"]
         self.wind_speed = max(0.0, base_wind + random.uniform(wind_noise_min, wind_noise_max))
 
         # Temperature based on time of day (realistic daily cycle)
-        base_temp = ENVIRONMENT["BASE_TEMPERATURE"]
-        temp_variation = ENVIRONMENT["TEMP_VARIATION"]
+        base_temp = self.config["ENVIRONMENT"]["BASE_TEMPERATURE"]
+        temp_variation = self.config["ENVIRONMENT"]["TEMP_VARIATION"]
         if 0 <= sim_hour < 6:
             offset = -0.6
         elif 6 <= sim_hour < 9:

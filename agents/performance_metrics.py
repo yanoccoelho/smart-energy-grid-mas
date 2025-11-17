@@ -1,10 +1,10 @@
 from collections import defaultdict
-from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
+from scenarios.base_config import SCENARIO_CONFIG
 
 class PerformanceTracker:
     """Tracks and reports system performance metrics every 5 rounds"""
     
-    def __init__(self):
+    def __init__(self, config=SCENARIO_CONFIG):
         # Acumuladores gerais
         self.rounds_data = []
         
@@ -26,7 +26,7 @@ class PerformanceTracker:
         # Acompanhamento produtores e emergências
         self.producer_failures = 0
         self.emergency_activations = 0
-        self.report_interval = METRICS["REPORT_INTERVAL_ROUNDS"]
+        self.report_interval = config["METRICS"]["REPORT_INTERVAL_ROUNDS"]
     
     def record_round(self, round_num, round_data):
         """

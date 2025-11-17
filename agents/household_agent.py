@@ -5,15 +5,16 @@ import spade
 from spade.behaviour import CyclicBehaviour, OneShotBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
-from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
+from scenarios.base_config import SCENARIO_CONFIG
 
 class HouseholdAgent(spade.agent.Agent):
     """Household or Prosumer agent."""
 
-    def __init__(self, jid, password, grid_node_jid, is_prosumer=False, price_max=0.25, ask_price=0.20, response_probability=0.85):
+    def __init__(self, jid, password, grid_node_jid, is_prosumer=False, price_max=0.25, ask_price=0.20, response_probability=0.85, config=SCENARIO_CONFIG):
         super().__init__(jid, password)
         self.grid_node_jid = grid_node_jid
         self.is_prosumer = is_prosumer
+        self.config = config
         self.price_max = float(price_max)
         self.ask_price = float(ask_price)
         self.response_probability = float(response_probability)
@@ -21,20 +22,20 @@ class HouseholdAgent(spade.agent.Agent):
         self.current_demand_kwh = 0.0
         self.current_production_kwh = 0.0
         self.battery_kwh = 0.0
-        self.battery_capacity_kwh = HOUSEHOLDS["BATTERY_CAPACITY_KWH"] if is_prosumer else 0.0
-        self.max_charge_kwh = HOUSEHOLDS["BATTERY_CHARGE_RATE_KW"]
-        self.max_discharge_kwh = HOUSEHOLDS["BATTERY_DISCHARGE_RATE_KW"]
-        self.battery_efficiency = HOUSEHOLDS["BATTERY_EFFICIENCY"]
+        self.battery_capacity_kwh = self.config["HOUSEHOLDS"]["BATTERY_CAPACITY_KWH"] if is_prosumer else 0.0
+        self.max_charge_kwh = self.config["HOUSEHOLDS"]["BATTERY_CHARGE_RATE_KW"]
+        self.max_discharge_kwh = self.config["HOUSEHOLDS"]["BATTERY_DISCHARGE_RATE_KW"]
+        self.battery_efficiency = self.config["HOUSEHOLDS"]["BATTERY_EFFICIENCY"]
 
         if is_prosumer:
-            min_area, max_area = HOUSEHOLDS["PANEL_AREA_RANGE_M2"]
+            min_area, max_area = self.config["HOUSEHOLDS"]["PANEL_AREA_RANGE_M2"]
             self.panel_area_m2 = random.uniform(min_area, max_area)
         else:
             self.panel_area_m2 = 0.0
 
         self.solar_irradiance = 0.0
-        self.wind_speed = ENVIRONMENT["BASE_WIND_SPEED"]
-        self.temperature = ENVIRONMENT["BASE_TEMPERATURE"]
+        self.wind_speed = self.config["ENVIRONMENT"]["BASE_WIND_SPEED"]
+        self.temperature = self.config["ENVIRONMENT"]["BASE_TEMPERATURE"]
         self.sim_hour = 6
 
         self.active_round_id = None
@@ -50,7 +51,7 @@ class HouseholdAgent(spade.agent.Agent):
     def _update_state(self):
         """Calculate current demand, production, and battery state."""
         hour = self.sim_hour
-        demand_ranges = HOUSEHOLDS["DEMAND_RANGES"]
+        demand_ranges = self.config["HOUSEHOLDS"]["DEMAND_RANGES"]
         if 6 <= hour < 9:
             demand_range = demand_ranges["morning"]
         elif 18 <= hour < 24:
@@ -65,7 +66,7 @@ class HouseholdAgent(spade.agent.Agent):
 
         if self.is_prosumer:
             if self.solar_irradiance > 0:
-                solar_efficiency = PRODUCERS["SOLAR_EFFICIENCY"]
+                solar_efficiency = self.config["PRODUCERS"]["SOLAR_EFFICIENCY"]
                 max_power_kwh = self.panel_area_m2 * solar_efficiency
                 self.current_production_kwh = self.solar_irradiance * max_power_kwh
             else:

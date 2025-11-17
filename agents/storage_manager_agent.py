@@ -6,7 +6,7 @@ import asyncio
 from spade.behaviour import PeriodicBehaviour, OneShotBehaviour, CyclicBehaviour
 from spade.message import Message
 from logs.db_logger import DBLogger
-from config import SIMULATION, EXTERNAL_GRID, PRODUCERS, HOUSEHOLDS, STORAGE, ENVIRONMENT, METRICS
+from scenarios.base_config import SCENARIO_CONFIG
 
 class StorageManagerAgent(spade.agent.Agent):
     """Energy Storage Manager agent - Emergency Reserve (50 kWh)."""
@@ -17,20 +17,17 @@ class StorageManagerAgent(spade.agent.Agent):
         password,
         grid_node_jid,
         soc_init_frac=1.0,
-        capacity_kwh=STORAGE["CAPACITY_KWH"],
-        ask_price=STORAGE["ASK_PRICE"],
-        price_max=STORAGE["MAX_PRICE"],
-        emergency_only=STORAGE["EMERGENCY_ONLY"],
+        config=SCENARIO_CONFIG,
     ):
         super().__init__(jid, password)
         self.grid_node_jid = grid_node_jid
-        self.cap_kwh = float(capacity_kwh)
-        self.soc_kwh = float(soc_init_frac) * float(capacity_kwh)
+        self.cap_kwh = float(config["STORAGE"]["CAPACITY_KWH"])
+        self.soc_kwh = float(soc_init_frac) * self.cap_kwh
         self.temp_c = 25.0
         self.soh = 1.0
-        self.ask_price = float(ask_price)
-        self.price_max = float(price_max)
-        self.emergency_only = emergency_only
+        self.ask_price = float(config["STORAGE"]["ASK_PRICE"])
+        self.price_max = float(config["STORAGE"]["MAX_PRICE"])
+        self.emergency_only = config["STORAGE"]["EMERGENCY_ONLY"]
         self.response_probability = 1.0
         self.active_round_id = None
         self.round_deadline_ts = 0.0
