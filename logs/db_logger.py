@@ -5,25 +5,41 @@ from threading import Lock
 
 class DBLogger:
     """
-    Thread-safe database logger for agent events and auction results.
+    Thread-safe SQLite logger used to store all agent-related events
+    and microgrid auction results.
 
-    This class handles:
-    - Storing all agent-level events (status, bids, offers, etc.)
-    - Logging completed auction results (buyer, seller, energy traded)
-    - Automatic creation of SQLite tables if they do not exist
+    This logger supports:
+        - Persisting all agent-level events (status updates, offers,
+          requests, CFPs, etc.)
+        - Recording completed auction transactions between agents
+        - Automatic creation of required tables if they do not exist
+        - Safe concurrent writes using a thread-level lock
+
+    Args:
+        db_path (str): Path to the SQLite database file.
     """
 
     def __init__(self, db_path: str = "logs/agents_logs.db"):
-        """Initialize the database connection and ensure tables exist."""
+        """Initialize the SQLite connection and ensure the schema exists.
+
+        Args:
+            db_path (str): Path to the SQLite database used for logging.
+        """
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.lock = Lock()
         self._create_tables()
 
-    # Internal setup
+    # INTERNAL SETUP
 
     def _create_tables(self) -> None:
-        """Create the required tables if they don't exist."""
+        """
+        Create the required database tables (`events`, `auction_results`)
+        if they do not already exist.
+
+        This method is automatically executed during initialization.
+        """
         with self.conn:
+            # General agent events log
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +51,8 @@ class DBLogger:
                     round_id INTEGER
                 )
             """)
+
+            # Finalized auction transaction records
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS auction_results (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,7 +65,7 @@ class DBLogger:
                 )
             """)
 
-    # Public logging methods
+    # PUBLIC LOGGING METHODS
 
     def log_event(
         self,
@@ -58,14 +76,21 @@ class DBLogger:
         round_id: int | None = None
     ) -> None:
         """
-        Log a single agent event (status, CFP, offer, request, etc.).
+        Log a single agent-level event.
+
+        Typical use cases:
+            - Household sending a CFP response
+            - Producer reporting status
+            - Storage unit receiving a control command
+            - Any message exchanged during the auction mechanism
 
         Args:
-            kind: Type of event (e.g., "status", "offer_sent", "cfp_received").
-            jid: Agent identifier (JID).
-            kw: Energy quantity involved (kW).
-            price: Price associated with the event.
-            round_id: Optional market round identifier.
+            kind (str): Event type identifier (e.g. "status", "offer_sent",
+                        "energy_request", "environment_update").
+            jid (str): JID of the agent generating the event.
+            kw (float): Amount of energy associated with the event.
+            price (float): Price linked to the event.
+            round_id (int | None): Optional market round identifier.
         """
         with self.lock, self.conn:
             self.conn.execute(
@@ -85,14 +110,17 @@ class DBLogger:
         price: float
     ) -> None:
         """
-        Log the result of a completed auction transaction.
+        Record the final result of a completed auction transaction.
 
         Args:
-            round_id: Market round identifier.
-            buyer: JID of the buyer agent.
-            seller: JID of the seller agent.
-            kw: Energy traded (kW).
-            price: Agreed price per kWh.
+            round_id (int): Unique market round identifier.
+            buyer (str): JID of the buyer agent.
+            seller (str): JID of the seller agent.
+            kw (float): Energy traded in the transaction (kWh).
+            price (float): Clearing price agreed by both parties (€/kWh).
+
+        Returns:
+            None
         """
         with self.lock, self.conn:
             self.conn.execute(
