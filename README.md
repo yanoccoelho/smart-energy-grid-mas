@@ -195,14 +195,6 @@ You will be asked to:
 
 Then all agents start automatically
 
-Each agent runs a local web dashboard such as:
-
-http://127.0.0.1:10000   ← grid node
-
-http://127.0.0.1:10001   ← environment
-
-http://127.0.0.1:10002+  ← households/producers/storage
-
 ### 6.Inspecting the Database Logs
 
 All events, offers, auctions, failures, metrics, and energy exchanges are stored in:
