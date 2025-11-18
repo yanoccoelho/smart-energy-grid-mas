@@ -52,9 +52,9 @@ class GridNodeAgent(spade.agent.Agent):
             external_grid_config = {
                 "enabled": True,
                 "buy_price_min": config["EXTERNAL_GRID"]["MIN_DYNAMIC_PRICE"],
-                "buy_price_max": config["EXTERNAL_GRID"]["SELL_PRICE"],
-                "sell_price_min": config["EXTERNAL_GRID"]["BUY_PRICE"],
-                "sell_price_max": config["EXTERNAL_GRID"]["MAX_DYNAMIC_PRICE"],
+                "buy_price_max": config["EXTERNAL_GRID"]["MAX_DYNAMIC_PRICE"],
+                "sell_price_min": config["EXTERNAL_GRID"]["SELL_PRICE"],
+                "sell_price_max": config["EXTERNAL_GRID"]["BUY_PRICE"],
                 "acceptance_prob": config["EXTERNAL_GRID"]["ACCEPTANCE_PROB"],
             }
 
@@ -191,19 +191,70 @@ class GridNodeAgent(spade.agent.Agent):
         except (TypeError, ValueError):
             return default
 
-    def clamp_value_to_agent_limit(self, agent_jid, value):
+    def _estimate_prosumer_internal_use(self, agent_jid):
         """
-        Clamp a requested/offered kWh value to the agent's limit.
-
-        Returns:
-            tuple: (capped_value, limit) where limit may be None.
+        Estimate how much energy a prosumer is retaining internally (local load +
+        battery charging) during this round.
         """
-        limit = self.get_agent_limit_kw(agent_jid)
-        if limit is None:
-            return value, None
+        state = self.households_state.get(agent_jid)
+        if not state or not state.get("is_prosumer", False):
+            return 0.0
 
-        capped_value = min(value, limit)
-        return capped_value, limit
+        production = float(state.get("prod_kwh", 0.0))
+        demand = float(state.get("demand_kwh", 0.0))
+        local_usage = min(production, demand)
+
+        net = production - demand
+        battery_charge = 0.0
+        if net > 0.0:
+            battery_level = float(state.get("battery_kwh", 0.0))
+            battery_capacity = float(
+                self.config["HOUSEHOLDS"]["BATTERY_CAPACITY_KWH"]
+            )
+            charge_rate = float(self.config["HOUSEHOLDS"]["BATTERY_CHARGE_RATE_KW"])
+            remaining_capacity = max(0.0, battery_capacity - battery_level)
+            if remaining_capacity > 0.0:
+                battery_charge = min(net, charge_rate, remaining_capacity)
+
+        internal_use = local_usage + battery_charge
+        return max(0.0, internal_use)
+
+    def get_operational_limit_info(self, agent_jid, role):
+        """
+        Return a dict describing the effective per-round limit for an agent.
+
+        The dict contains:
+            - base_limit: configured limit (may be None).
+            - effective_limit: limit after subtracting internal usage.
+            - display: formatted string for logs (if applicable).
+            - internal_use: kWh withheld for internal purposes (prosumer only).
+        """
+        base_limit = self.get_agent_limit_kw(agent_jid)
+        info = {
+            "base_limit": base_limit,
+            "effective_limit": base_limit,
+            "display": None,
+            "internal_use": 0.0,
+        }
+
+        if base_limit is None:
+            return info
+
+        category = self._infer_agent_category(agent_jid)
+        if category == "prosumer":
+            internal = self._estimate_prosumer_internal_use(agent_jid)
+            effective = max(0.0, base_limit - internal)
+            info.update(
+                {
+                    "effective_limit": effective,
+                    "internal_use": internal,
+                    "display": f"limit({base_limit:.1f} - {internal:.1f} = {effective:.1f})",
+                }
+            )
+        else:
+            info["display"] = f"limit {base_limit:.1f} kWh"
+
+        return info
 
     def _get_demand_period(self, hour):
         """
@@ -217,12 +268,11 @@ class GridNodeAgent(spade.agent.Agent):
         """
         if 6 <= hour < 9:
             return "High Demand - Morning Peak"
-        elif 18 <= hour < 22:
+        if 18 <= hour < 22:
             return "High Demand - Evening Peak"
-        elif 0 <= hour < 6:
+        if 22 <= hour < 24 or 0 <= hour < 6:
             return "Low Demand - Night Off-Peak"
-        else:
-            return "Medium Demand - Daytime"
+        return "Medium Demand - Daytime"
 
     def _check_and_trigger_failure(self):
         """

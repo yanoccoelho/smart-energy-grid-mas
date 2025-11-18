@@ -112,7 +112,7 @@ class PerformanceTracker:
 
         blackout = round_data.get("blackout")
         if blackout is None:
-            blackout = avg_fulfillment < 99.9
+            blackout = avg_fulfillment < 99.0
             round_data["blackout"] = blackout
 
         if blackout:

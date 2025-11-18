@@ -76,7 +76,7 @@ class PrintAgentStatus(OneShotBehaviour):
                 current_round = failure_total - failure_remaining + 1
                 status = f"Offline - Round {current_round}/{failure_total}"
                 print(
-                    f"  🏭 {jid}: Production = {prod:.1f} kWh ({status}) [FAILURE]"
+                    f"  {jid}: Production = {prod:.1f} kWh ({status}) [FAILURE]"
                     f"{limit_suffix(jid)}"
                 )
             else:

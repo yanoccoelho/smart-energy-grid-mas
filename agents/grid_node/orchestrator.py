@@ -26,6 +26,38 @@ class RoundOrchestrator(OneShotBehaviour):
         Execute the main simulation loop, performing repeated auction
         rounds until the agent is stopped.
         """
+        def limit_suffix(limit_info, deliverable_value=None):
+            """
+            Compose the string that lists an agent's limit and deliverable capacity.
+            """
+            if not limit_info:
+                limit_info = {}
+
+            label = limit_info.get("display")
+            effective_limit = limit_info.get("effective_limit")
+
+            parts = []
+            if label:
+                parts.append(label)
+            elif effective_limit is not None:
+                parts.append(f"limit {effective_limit:.1f} kWh")
+
+            if deliverable_value is not None:
+                parts.append(f"deliverable {deliverable_value:.1f} kWh")
+
+            if not parts:
+                return ""
+
+            return " | " + " | ".join(parts)
+
+        def format_need_line(agent_label, needs_value, limit_info, deliverable_value):
+            """
+            Build the textual description for a buyer's demand line.
+            """
+            return (
+                f"{agent_label} needs {needs_value:.1f} kWh"
+                f"{limit_suffix(limit_info, deliverable_value)}"
+            )
         while True:
             R = time.time()
             self.agent.round_id = R
@@ -175,14 +207,33 @@ class RoundOrchestrator(OneShotBehaviour):
             req_lookup = dict(reqs)
             declined = self.agent.declined_round.get(R, set())
 
+            seller_limit_info = {}
+            seller_initial_deliverable = {}
+            for seller, offer_data in offers.items():
+                limit_info = self.agent.get_operational_limit_info(seller, "sell")
+                seller_limit_info[seller] = limit_info
+                limit_value = limit_info.get("effective_limit")
+                offer_amount = offer_data["offer_kwh"]
+                deliverable_offer = offer_amount
+                if limit_value is not None:
+                    deliverable_offer = min(deliverable_offer, limit_value)
+                deliverable_offer = max(0.0, deliverable_offer)
+                seller_initial_deliverable[seller] = deliverable_offer
+
             print(f"📩 OFFERS RECEIVED ({len(offers)} of {len(sellers)} invited):")
             for seller, offer_data in offers.items():
                 kwh = offer_data["offer_kwh"]
                 price = offer_data["price"]
-                print(f"  {seller}: {kwh:.1f} kWh @ €{price:.2f}/kWh")
+                deliverable_offer = seller_initial_deliverable.get(seller, kwh)
+                limit_note = limit_suffix(
+                    seller_limit_info.get(seller), deliverable_offer
+                )
+                print(
+                    f"  {seller}: {kwh:.1f} kWh @ €{price:.2f}/kWh{limit_note}"
+                )
 
             if len(declined) > 0:
-                print(f"\n🚫 NO RESPONSE ({len(declined)}):")
+                print(f"\n📭 NO RESPONSE ({len(declined)}):")
                 for agent_jid in declined:
                     print(f"  {agent_jid} (declined to participate)")
 
@@ -200,12 +251,24 @@ class RoundOrchestrator(OneShotBehaviour):
             buyer_received_kw = {buyer: 0.0 for buyer in req_lookup}
 
             seller_remaining = {}
-            for seller, offer_data in offers.items():
-                seller_remaining[seller] = offer_data["offer_kwh"]
+            for seller, deliverable in seller_initial_deliverable.items():
+                seller_remaining[seller] = deliverable
+
+            buyer_caps = {}
 
             for buyer, req_data in reqs:
                 need_kwh = req_data["need_kwh"]
                 price_max = req_data["price_max"]
+                limit_info = self.agent.get_operational_limit_info(buyer, "buy")
+                limit_value = limit_info.get("effective_limit")
+                deliverable_cap = need_kwh
+                if limit_value is not None:
+                    deliverable_cap = min(deliverable_cap, limit_value)
+                deliverable_cap = max(0.0, deliverable_cap)
+                buyer_caps[buyer] = {
+                    "limit_info": limit_info,
+                    "deliverable_cap": deliverable_cap,
+                }
 
                 # Sellers the buyer can afford
                 available_sellers = []
@@ -219,7 +282,12 @@ class RoundOrchestrator(OneShotBehaviour):
                         )
 
                 if not available_sellers:
-                    print(f"  ⚠️  {buyer} needs {need_kwh:.1f} kWh")
+                    print(
+                        "  ⚠️  "
+                        + format_need_line(
+                            buyer, need_kwh, limit_info, deliverable_cap
+                        )
+                    )
                     print("     → No match (no affordable sellers)\n")
                     unmatched_count += 1
                     buyer_fulfillment[buyer] = 0.0
@@ -233,26 +301,26 @@ class RoundOrchestrator(OneShotBehaviour):
 
                 for price, seller, offer_data in available_sellers:
                     available = seller_remaining[seller]
-                    remaining_need = need_kwh - total_bought
-                    remaining_limit = max(
+                    remaining_deliverable = max(0.0, deliverable_cap - total_bought)
+                    transmission_remaining = max(
                         0.0, self.agent.transmission_limit_kw - total_bought
                     )
 
-                    if remaining_need <= 0 or remaining_limit <= 0:
+                    if remaining_deliverable <= 0 or transmission_remaining <= 0:
                         break
 
-                    intended_amount = min(available, remaining_need)
-                    if intended_amount <= 0:
+                    raw_allocation = min(available, remaining_deliverable)
+                    if raw_allocation <= 0:
                         continue
 
-                    amount = min(intended_amount, remaining_limit)
+                    amount = min(raw_allocation, transmission_remaining)
                     if amount <= 0:
                         break
 
-                    if amount < intended_amount:
+                    if amount < raw_allocation:
                         log_msg = (
                             "⚠️ [TRANSMISSION LIMIT] Original offer of "
-                            f"{intended_amount:.1f} kWh limited to "
+                            f"{raw_allocation:.1f} kWh limited to "
                             f"{amount:.1f} kWh."
                         )
                         print(f"        {log_msg}")
@@ -261,7 +329,7 @@ class RoundOrchestrator(OneShotBehaviour):
                             buyer,
                             {
                                 "seller": seller,
-                                "original_kwh": intended_amount,
+                                "original_kwh": raw_allocation,
                                 "delivered_kwh": amount,
                             },
                             price,
@@ -274,16 +342,20 @@ class RoundOrchestrator(OneShotBehaviour):
                     total_cost += cost
                     purchases.append((seller, amount, price, cost))
 
+                demand_line = format_need_line(
+                    buyer, need_kwh, limit_info, deliverable_cap
+                )
+
                 if total_bought > 0:
                     fulfillment_pct = (total_bought / need_kwh) * 100
                     buyer_received_kw[buyer] = total_bought
                     buyer_fulfillment[buyer] = fulfillment_pct
 
-                    if fulfillment_pct >= 99.9:
-                        print(f"  ✅ {buyer} needs {need_kwh:.1f} kWh")
+                    if fulfillment_pct >= 99.0:
+                        print(f"  ✅ {demand_line}")
                         matched_count += 1
                     else:
-                        print(f"  ⚠️ {buyer} needs {need_kwh:.1f} kWh")
+                        print(f"  ⚠️ {demand_line}")
                         partial_count += 1
 
                     for _, (seller, amount, price, cost) in enumerate(purchases):
@@ -291,7 +363,7 @@ class RoundOrchestrator(OneShotBehaviour):
                         seller_before = remaining_after + amount
 
                         print(
-                            f"     → Matched with {seller} @ €{price:.2f}/kWh "
+                            f"     • Matched with {seller} @ €{price:.2f}/kWh "
                             f"({amount:.1f} kWh, €{cost:.2f})"
                         )
                         print(
@@ -302,11 +374,11 @@ class RoundOrchestrator(OneShotBehaviour):
 
                     avg_price = total_cost / total_bought if total_bought > 0 else 0
                     print(
-                        f"     → {buyer} received {total_bought:.1f}/"
+                        f"     • {buyer} received {total_bought:.1f}/"
                         f"{need_kwh:.1f} kWh ({fulfillment_pct:.0f}% fulfilled)"
                     )
                     print(
-                        f"     → Total cost: €{total_cost:.2f} "
+                        f"     • Total cost: €{total_cost:.2f} "
                         f"(avg: €{avg_price:.2f}/kWh)\n"
                     )
 
@@ -365,8 +437,8 @@ class RoundOrchestrator(OneShotBehaviour):
                         R,
                     )
                 else:
-                    print(f"  ⚠️ {buyer} needs {need_kwh:.1f} kWh")
-                    print("     → No match\n")
+                    print(f"  ⚠️ {demand_line}")
+                    print("     • No match\n")
                     unmatched_count += 1
                     buyer_fulfillment[buyer] = 0.0
 
@@ -397,8 +469,16 @@ class RoundOrchestrator(OneShotBehaviour):
                     buyer_fulfillment[buyer] = fulfillment
                     if remaining > 0.01:
                         price_max = req_data["price_max"]
+                        cap_info = buyer_caps.get(buyer, {})
                         unmet_demand.append(
-                            (buyer, need_kwh, remaining, price_max, fulfillment)
+                            (
+                                buyer,
+                                need_kwh,
+                                remaining,
+                                price_max,
+                                fulfillment,
+                                cap_info,
+                            )
                         )
 
                 # Surplus that could be sent to external grid
@@ -433,15 +513,31 @@ class RoundOrchestrator(OneShotBehaviour):
                         remaining_need,
                         price_max,
                         current_fulfillment,
+                        cap_info,
                     ) in unmet_demand:
                         if self.agent.external_grid_sell_price <= price_max:
                             current_received = buyer_received_kw.get(buyer, 0.0)
-                            remaining_limit = max(
+                            deliverable_cap = cap_info.get("deliverable_cap", need_kwh)
+                            limit_info = cap_info.get("limit_info")
+                            agent_remaining = max(
+                                0.0, deliverable_cap - current_received
+                            )
+                            transmission_remaining = max(
                                 0.0,
                                 self.agent.transmission_limit_kw - current_received,
                             )
 
-                            if remaining_limit <= 0:
+                            if agent_remaining <= 0:
+                                limit_note = limit_suffix(
+                                    limit_info, agent_remaining
+                                )
+                                print(
+                                    f"  {buyer} already at deliverable cap"
+                                    f"{limit_note}. Skipping external supply."
+                                )
+                                continue
+
+                            if transmission_remaining <= 0:
                                 print(
                                     f"  {buyer} already at transmission limit "
                                     f"({self.agent.transmission_limit_kw:.1f} kWh). "
@@ -449,7 +545,8 @@ class RoundOrchestrator(OneShotBehaviour):
                                 )
                                 continue
 
-                            delivered = min(remaining_need, remaining_limit)
+                            allowed_cap = min(agent_remaining, transmission_remaining)
+                            delivered = min(remaining_need, allowed_cap)
                             if delivered <= 0:
                                 continue
 
@@ -471,8 +568,14 @@ class RoundOrchestrator(OneShotBehaviour):
                                 )
 
                             if delivered < remaining_need:
+                                reasons = []
+                                if agent_remaining < remaining_need:
+                                    reasons.append("agent deliverable cap")
+                                if transmission_remaining < remaining_need:
+                                    reasons.append("transmission limit")
+                                reason_text = " & ".join(reasons) or "capacity cap"
                                 log_msg = (
-                                    "[TRANSMISSION LIMIT] Original demand of "
+                                    f"[{reason_text.upper()}] Original demand of "
                                     f"{remaining_need:.1f} kWh limited to "
                                     f"{delivered:.1f} kWh."
                                 )
@@ -484,6 +587,7 @@ class RoundOrchestrator(OneShotBehaviour):
                                         "seller": "external_grid",
                                         "original_kwh": remaining_need,
                                         "delivered_kwh": delivered,
+                                        "reasons": reasons,
                                     },
                                     self.agent.external_grid_sell_price,
                                     R,
@@ -494,7 +598,7 @@ class RoundOrchestrator(OneShotBehaviour):
                                     f"was {current_fulfillment:.0f}%, now 100%."
                                 )
 
-                                print(f"     Total cost: €{total_cost:.2f}")
+                            print(f"     Total cost: €{total_cost:.2f}")
 
                             buyer_msg = Message(to=buyer)
                             buyer_msg.metadata = {
@@ -527,6 +631,9 @@ class RoundOrchestrator(OneShotBehaviour):
                                 else 0.0
                             )
                             buyer_fulfillment[buyer] = min(100.0, fulfillment_pct)
+                            print(
+                                f"     Final fulfillment: {buyer_fulfillment[buyer]:.0f}%"
+                            )
                         else:
                             print(
                                 f"  {buyer} cannot afford external grid for remaining "
@@ -619,7 +726,7 @@ class RoundOrchestrator(OneShotBehaviour):
                                 )
 
             blackout_impacted = sum(
-                1 for pct in buyer_fulfillment.values() if pct < 99.9
+                1 for pct in buyer_fulfillment.values() if pct < 99.0
             )
             avg_fulfillment = (
                 sum(buyer_fulfillment.values()) / len(buyer_fulfillment)
@@ -654,6 +761,18 @@ class RoundOrchestrator(OneShotBehaviour):
             round_sleep = self.agent.config["SIMULATION"]["ROUND_SLEEP_SECONDS"]
             post_env_sleep = round_sleep * 0.2
             pre_env_sleep = max(0.0, round_sleep - post_env_sleep)
+
+            blackout_details = {
+                agent: pct
+                for agent, pct in buyer_fulfillment.items()
+                if pct < 99.0
+            }
+            if blackout_details:
+                print("\n🚨 Blackout impact:")
+                for agent, pct in sorted(blackout_details.items()):
+                    print(f"   {agent}: {pct:.0f}% fulfilled")
+            else:
+                print("\n✅ No blackout impact this round.")
 
             self._print_auction_results_summary(
                 total_buyers=len(reqs),
@@ -771,8 +890,8 @@ class RoundOrchestrator(OneShotBehaviour):
         """
         if 6 <= hour < 9:
             return "🌅"
+        if 9 <= hour < 18:
+            return "☀️"
         if 18 <= hour < 22:
             return "🌆"
-        if 0 <= hour < 6:
-            return "🌙"
-        return "☀️"
+        return "🌙"
