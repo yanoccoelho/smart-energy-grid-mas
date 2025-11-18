@@ -115,20 +115,34 @@ class Receiver(CyclicBehaviour):
             if data.get("round_id") != R:
                 return
             buyer = sender
-            need_kwh = float(data.get("need_kwh", 0))
+            need_kwh = max(0.0, float(data.get("need_kwh", 0)))
+            capped_need, limit = self.agent.clamp_value_to_agent_limit(buyer, need_kwh)
             price_max = float(data.get("price_max", 0))
+
+            if capped_need <= 0.0:
+                return
+
+            if limit is not None and capped_need < need_kwh:
+                self.agent._add_event(
+                    "agent_limit",
+                    buyer,
+                    {"original_kwh": need_kwh, "capped_kwh": capped_need},
+                    price_max,
+                    R,
+                )
+
             self.agent.requests_round[R][buyer] = {
-                "need_kwh": need_kwh,
+                "need_kwh": capped_need,
                 "price_max": price_max,
             }
-            self.agent._add_event("request", buyer, need_kwh, price_max, R)
+            self.agent._add_event("request", buyer, capped_need, price_max, R)
             return
 
         if msg_type == "energy_offer":
             data = json.loads(msg.body)
             rid = data.get("round_id")
             seller = sender
-            offer = float(data.get("offer_kwh", 0))
+            offer = max(0.0, float(data.get("offer_kwh", 0)))
             price = float(data.get("price", 0))
             now = time.time()
             R = self.agent.round_id
@@ -138,19 +152,32 @@ class Receiver(CyclicBehaviour):
                 if not producer_state.get("is_operational", True):
                     return
 
+            capped_offer, limit = self.agent.clamp_value_to_agent_limit(seller, offer)
+            if capped_offer <= 0.0:
+                return
+
+            if limit is not None and capped_offer < offer:
+                self.agent._add_event(
+                    "agent_limit",
+                    seller,
+                    {"original_kwh": offer, "capped_kwh": capped_offer},
+                    price,
+                    R,
+                )
+
             if (
                 rid == R
                 and self.agent.round_deadline_ts > 0.0
                 and now <= self.agent.round_deadline_ts
             ):
                 self.agent.offers_round[R][seller] = {
-                    "offer_kwh": offer,
+                    "offer_kwh": capped_offer,
                     "price": price,
                     "ts": now,
                 }
-                self.agent._add_event("offer", seller, offer, price, R)
+                self.agent._add_event("offer", seller, capped_offer, price, R)
             else:
-                self.agent._add_event("late", seller, offer, price, rid)
+                self.agent._add_event("late", seller, capped_offer, price, rid)
             return
 
         if msg_type == "declined_offer":

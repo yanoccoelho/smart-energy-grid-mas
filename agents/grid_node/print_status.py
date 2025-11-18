@@ -11,7 +11,13 @@ class PrintAgentStatus(OneShotBehaviour):
         Print the latest state of all known agents for debugging and
         monitoring purposes.
         """
-        print("AGENT STATUS REPORTS:\n")
+        print("📋 AGENT STATUS REPORTS:\n")
+
+        def limit_suffix(agent_jid):
+            limit = self.agent.get_agent_limit_kw(agent_jid)
+            if limit is None:
+                return ""
+            return f" | Limit = {limit:.1f} kWh"
 
         consumers = []
         prosumers = []
@@ -23,17 +29,18 @@ class PrintAgentStatus(OneShotBehaviour):
             else:
                 consumers.append((jid, state))
 
-        print("[CONSUMERS]")
+        print("🏡 [CONSUMERS]")
         for jid, state in consumers:
             demand_raw = state.get("demand_kwh", 0)
             demand = round(demand_raw, 1)
             deficit = -demand
             print(
-                f"  {jid}: Demand = {demand:.1f} kWh | "
+                f"   {jid}: Demand = {demand:.1f} kWh | "
                 f"Deficit = {deficit:.1f} kWh"
+                f"{limit_suffix(jid)}"
             )
 
-        print("\n[PROSUMERS]")
+        print("\n🏡 [PROSUMERS]")
         for jid, state in prosumers:
             demand_raw = state.get("demand_kwh", 0)
             prod_raw = state.get("prod_kwh", 0)
@@ -45,15 +52,16 @@ class PrintAgentStatus(OneShotBehaviour):
             area = state.get("panel_area_m2", 0)
 
             print(
-                f"  {jid}: Demand = {demand:.1f} kWh | "
+                f"   {jid}: Demand = {demand:.1f} kWh | "
                 f"Production = {prod:.1f} kWh | {status} = {net:+.1f} kWh"
+                f"{limit_suffix(jid)}"
             )
             print(
                 f"           Solar: {solar:.2f} | Area: {area:.1f} m² "
                 f"→ {prod:.1f} kWh"
             )
 
-        print("\n[PRODUCERS]")
+        print("\n⚡ [PRODUCERS]")
         for jid, state in self.agent.producers_state.items():
             prod_raw = state.get("prod_kwh", 0)
             prod = round(prod_raw, 1)
@@ -68,7 +76,8 @@ class PrintAgentStatus(OneShotBehaviour):
                 current_round = failure_total - failure_remaining + 1
                 status = f"Offline - Round {current_round}/{failure_total}"
                 print(
-                    f"  {jid}: Production = {prod:.1f} kWh ({status}) [FAILURE]"
+                    f"  🏭 {jid}: Production = {prod:.1f} kWh ({status}) [FAILURE]"
+                    f"{limit_suffix(jid)}"
                 )
             else:
                 status = "Available" if prod > 0 else "Offline"
@@ -76,6 +85,7 @@ class PrintAgentStatus(OneShotBehaviour):
                 if prod_type == "solar":
                     print(
                         f"  {jid}: Production = {prod:.1f} kWh ({status})"
+                        f"{limit_suffix(jid)}"
                     )
                     if prod > 0:
                         print(
@@ -93,19 +103,21 @@ class PrintAgentStatus(OneShotBehaviour):
 
                     print(
                         f"  {jid}: Production = {prod:.1f} kWh ({status})"
+                        f"{limit_suffix(jid)}"
                     )
                     if prod > 0:
                         print(
                             f"           Wind: {wind:.1f} m/s → "
-                            f"{power_fraction:.2f} × 50.0 kWh (capacity) "
+                            f"{power_fraction:.2f} × 50.0 kWh (efficiency x capacity) "
                             f"= {prod:.1f} kWh"
                         )
                 else:
                     print(
-                        f"  {jid}: Production = {prod:.1f} kWh ({status})"
+                        f"  ⚙️ {jid}: Production = {prod:.1f} kWh ({status})"
+                        f"{limit_suffix(jid)}"
                     )
 
-        print("\n[STORAGE]")
+        print("\n🔋 [STORAGE]")
         for jid, state in self.agent.storage_state.items():
             soc_raw = state.get("soc_kwh", 0)
             cap_raw = state.get("cap_kwh", 1)
@@ -118,19 +130,22 @@ class PrintAgentStatus(OneShotBehaviour):
             if emergency_only:
                 if self.agent.any_producer_failed:
                     print(
-                        f"  {jid}: SOC = {soc:.1f}/{cap:.1f} kWh "
+                        f"   {jid}: SOC = {soc:.1f}/{cap:.1f} kWh "
                         f"({pct:.0f}%) | Available: {avail:.1f} kWh "
                         "(emergency mode supplying)"
+                        f"{limit_suffix(jid)}"
                     )
                 else:
                     print(
-                        f"  {jid}: SOC = {soc:.1f}/{cap:.1f} kWh "
+                        f"   {jid}: SOC = {soc:.1f}/{cap:.1f} kWh "
                         f"({pct:.0f}%) | EMERGENCY RESERVE"
+                        f"{limit_suffix(jid)}"
                     )
             else:
                 print(
-                    f"  {jid}: SOC = {soc:.1f}/{cap:.1f} kWh "
+                    f"  📦 {jid}: SOC = {soc:.1f}/{cap:.1f} kWh "
                     f"({pct:.0f}%) | Available: {avail:.1f} kWh"
+                    f"{limit_suffix(jid)}"
                 )
 
         print()

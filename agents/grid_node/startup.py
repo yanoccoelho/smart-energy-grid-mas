@@ -31,8 +31,12 @@ class StartupCoordinator(OneShotBehaviour):
             if got_h >= exp_h and got_p >= exp_p and got_s >= exp_s:
                 break
 
-        total = got_h + got_p + got_s
-        print(f"[GridNode] All {total} agents registered.\n")
+        total_market_agents = got_h + got_p + got_s
+        total_with_core = total_market_agents + 2  # grid node + environment agent
+        print(
+            f"[GridNode] All {total_market_agents} market agents registered "
+            f"({total_with_core} total including grid/env).\n"
+        )
 
         if self.agent.external_grid_enabled:
             print("[GridNode] External grid enabled:")

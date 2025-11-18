@@ -45,6 +45,7 @@ class GridNodeAgent(spade.agent.Agent):
         self.expected_agents = expected_agents
         self.env_jid = env_jid
         self.config = config
+        self.agent_limits_kw = self.config["SIMULATION"].get("AGENT_LIMITS_KW", {})
         self.transmission_limit_kw = self.config["SIMULATION"]["TRANSMISSION_LIMIT_KW"]
 
         if external_grid_config is None:
@@ -145,6 +146,65 @@ class GridNodeAgent(spade.agent.Agent):
         }
         self.auction_log.append(evt)
 
+    def _infer_agent_category(self, agent_jid):
+        """
+        Infer the type of an agent (consumer, prosumer, producer, storage).
+        """
+        state = self.households_state.get(agent_jid)
+        if state:
+            return "prosumer" if state.get("is_prosumer", False) else "consumer"
+
+        if agent_jid in self.known_households:
+            if "prosumer" in agent_jid.lower():
+                return "prosumer"
+            return "consumer"
+
+        if agent_jid in self.producers_state or agent_jid in self.known_producers:
+            return "producer"
+
+        if agent_jid in self.storage_state or agent_jid in self.known_storage:
+            return "storage"
+
+        return None
+
+    def get_agent_limit_kw(self, agent_jid, default=None):
+        """
+        Return the configured power limit for the given agent, if any.
+        """
+        limits = self.agent_limits_kw or {}
+        category = self._infer_agent_category(agent_jid)
+        if not category:
+            return default
+
+        if category == "storage":
+            limit = limits.get("storage")
+            if limit is None:
+                limit = limits.get("battery")
+        else:
+            limit = limits.get(category)
+
+        if limit is None:
+            return default
+
+        try:
+            return float(limit)
+        except (TypeError, ValueError):
+            return default
+
+    def clamp_value_to_agent_limit(self, agent_jid, value):
+        """
+        Clamp a requested/offered kWh value to the agent's limit.
+
+        Returns:
+            tuple: (capped_value, limit) where limit may be None.
+        """
+        limit = self.get_agent_limit_kw(agent_jid)
+        if limit is None:
+            return value, None
+
+        capped_value = min(value, limit)
+        return capped_value, limit
+
     def _get_demand_period(self, hour):
         """
         Map a simulated hour to a qualitative demand period label.
@@ -207,8 +267,8 @@ class GridNodeAgent(spade.agent.Agent):
                     state["failure_rounds_total"] = failure_duration
                     state["prod_kwh"] = 0.0
                     print(
-                        f"\nSYSTEM ALERT: {p_jid} failed (offline for {failure_duration} rounds)."
+                        f"\n⚠️ SYSTEM ALERT: {p_jid} failed (offline for {failure_duration} rounds)."
                     )
-                    print("Emergency backup activated: storage will cover the deficit.\n")
+                    print("⚡ Emergency backup activated: storage will cover the deficit.\n")
                     self.any_producer_failed = True
                     break

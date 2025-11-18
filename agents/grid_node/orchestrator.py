@@ -33,17 +33,18 @@ class RoundOrchestrator(OneShotBehaviour):
 
             elapsed_real = R - self.agent.simulation_start_ts
             demand_period = self.agent._get_demand_period(self.agent.sim_hour)
+            period_emoji = self._get_period_emoji(self.agent.sim_hour)
 
             print("\n" + "=" * 80)
             print(f"  ROUND #{self.agent.round_counter}")
             print(
                 f"  Simulated Time: Day {self.agent.sim_day} - "
-                f"{self.agent.sim_hour:02d}:00 ({demand_period})"
+                f"{self.agent.sim_hour:02d}:00 ({period_emoji} {demand_period})"
             )
             print(f"  Real Time Elapsed: {elapsed_real:.1f}s")
             print("=" * 80)
             print(
-                "Environment: "
+                "🌏 Environment: "
                 f"Solar {self.agent.current_solar:.2f} | "
                 f"Wind {self.agent.current_wind:.1f} m/s | "
                 f"Temp {self.agent.current_temp:.1f}°C\n"
@@ -144,8 +145,8 @@ class RoundOrchestrator(OneShotBehaviour):
             eligible_for_cfp.update(real_buyers)
 
             if len(eligible_for_cfp) > 0:
-                print("AUCTION PROCESS:\n")
-                print("→ Broadcasting Call for Proposals to eligible agents...")
+                print("⚙️  AUCTION PROCESS:\n")
+                print("➡️  Broadcasting Call for Proposals to eligible agents...")
                 print(
                     f"  {len(sellers)} eligible sellers | "
                     f"{num_potential_buyers} potential buyers"
@@ -166,7 +167,7 @@ class RoundOrchestrator(OneShotBehaviour):
                 self.agent.add_behaviour(burst)
                 await asyncio.sleep(offers_timeout)
             else:
-                print("No agents available for auction.\n")
+                print("⚙️ No agents available for auction.\n")
 
             # Collect offers and requests for this round
             offers = self.agent.offers_round.get(R, {})
@@ -174,18 +175,18 @@ class RoundOrchestrator(OneShotBehaviour):
             req_lookup = dict(reqs)
             declined = self.agent.declined_round.get(R, set())
 
-            print(f"OFFERS RECEIVED ({len(offers)} of {len(sellers)} invited):")
+            print(f"📩 OFFERS RECEIVED ({len(offers)} of {len(sellers)} invited):")
             for seller, offer_data in offers.items():
                 kwh = offer_data["offer_kwh"]
                 price = offer_data["price"]
                 print(f"  {seller}: {kwh:.1f} kWh @ €{price:.2f}/kWh")
 
             if len(declined) > 0:
-                print(f"\nNO RESPONSE ({len(declined)}):")
+                print(f"\n🚫 NO RESPONSE ({len(declined)}):")
                 for agent_jid in declined:
                     print(f"  {agent_jid} (declined to participate)")
 
-            print("\nMATCHING:\n")
+            print("\n🤝 MATCHING:\n")
 
             # Matching algorithm with partial allocation support
             matched_count = 0
@@ -218,7 +219,7 @@ class RoundOrchestrator(OneShotBehaviour):
                         )
 
                 if not available_sellers:
-                    print(f"  {buyer} needs {need_kwh:.1f} kWh")
+                    print(f"  ⚠️  {buyer} needs {need_kwh:.1f} kWh")
                     print("     → No match (no affordable sellers)\n")
                     unmatched_count += 1
                     buyer_fulfillment[buyer] = 0.0
@@ -250,7 +251,7 @@ class RoundOrchestrator(OneShotBehaviour):
 
                     if amount < intended_amount:
                         log_msg = (
-                            "[TRANSMISSION LIMIT] Original offer of "
+                            "⚠️ [TRANSMISSION LIMIT] Original offer of "
                             f"{intended_amount:.1f} kWh limited to "
                             f"{amount:.1f} kWh."
                         )
@@ -279,10 +280,10 @@ class RoundOrchestrator(OneShotBehaviour):
                     buyer_fulfillment[buyer] = fulfillment_pct
 
                     if fulfillment_pct >= 99.9:
-                        print(f"  {buyer} needs {need_kwh:.1f} kWh")
+                        print(f"  ✅ {buyer} needs {need_kwh:.1f} kWh")
                         matched_count += 1
                     else:
-                        print(f"  {buyer} needs {need_kwh:.1f} kWh")
+                        print(f"  ⚠️ {buyer} needs {need_kwh:.1f} kWh")
                         partial_count += 1
 
                     for _, (seller, amount, price, cost) in enumerate(purchases):
@@ -364,28 +365,10 @@ class RoundOrchestrator(OneShotBehaviour):
                         R,
                     )
                 else:
-                    print(f"  {buyer} needs {need_kwh:.1f} kWh")
+                    print(f"  ⚠️ {buyer} needs {need_kwh:.1f} kWh")
                     print("     → No match\n")
                     unmatched_count += 1
                     buyer_fulfillment[buyer] = 0.0
-
-            print("AUCTION RESULTS:")
-            print(f"   {len(reqs)} buyers requested energy")
-            if matched_count > 0:
-                print(f"   {matched_count} fully matched")
-            if partial_count > 0:
-                print(f"   {partial_count} partially matched")
-            if unmatched_count > 0:
-                print(f"   {unmatched_count} unmatched request(s)")
-            if len(declined) > 0:
-                print(f"   {len(declined)} sellers declined")
-            if total_traded > 0:
-                print(f"   Total energy traded: {total_traded:.1f} kWh")
-                print(f"   Total market value: €{total_value:.2f}")
-                avg_price = (
-                    sum(prices_paid) / len(prices_paid) if prices_paid else 0
-                )
-                print(f"   Average price: €{avg_price:.2f}/kWh")
 
             # External grid interaction
             if self.agent.external_grid_enabled:
@@ -437,7 +420,7 @@ class RoundOrchestrator(OneShotBehaviour):
                     self.agent.ext_grid_rounds_available += 1
 
                     if len(unmet_demand) > 0 or len(surplus_energy) > 0:
-                        print("\nEXTERNAL GRID AVAILABLE:")
+                        print("\n🌐 EXTERNAL GRID AVAILABLE:")
                         print(
                             f"   Buy: €{self.agent.external_grid_buy_price:.2f}/kWh | "
                             f"Sell: €{self.agent.external_grid_sell_price:.2f}/kWh\n"
@@ -476,13 +459,13 @@ class RoundOrchestrator(OneShotBehaviour):
 
                             if current_fulfillment > 0:
                                 print(
-                                    f"  {buyer} buying additional "
+                                    f"  🌐 {buyer} buying additional "
                                     f"{delivered:.1f} kWh from external grid "
                                     f"@ €{self.agent.external_grid_sell_price:.2f}/kWh"
                                 )
                             else:
                                 print(
-                                    f"  {buyer} buying {delivered:.1f} kWh from "
+                                    f"  🌐 {buyer} buying {delivered:.1f} kWh from "
                                     "external grid "
                                     f"@ €{self.agent.external_grid_sell_price:.2f}/kWh"
                                 )
@@ -511,7 +494,7 @@ class RoundOrchestrator(OneShotBehaviour):
                                     f"was {current_fulfillment:.0f}%, now 100%."
                                 )
 
-                            print(f"     Total cost: €{total_cost:.2f}")
+                                print(f"     Total cost: €{total_cost:.2f}")
 
                             buyer_msg = Message(to=buyer)
                             buyer_msg.metadata = {
@@ -561,7 +544,7 @@ class RoundOrchestrator(OneShotBehaviour):
                         )
 
                         print(
-                            f"  {seller} selling {surplus_kwh:.1f} kWh to "
+                            f"  🌐 {seller} selling {surplus_kwh:.1f} kWh to "
                             "external grid "
                             f"@ €{self.agent.external_grid_buy_price:.2f}/kWh"
                         )
@@ -588,7 +571,7 @@ class RoundOrchestrator(OneShotBehaviour):
                         ext_bought_value += total_revenue
 
                     if ext_sold_total > 0 or ext_bought_total > 0:
-                        print("\n[External Grid Summary]")
+                        print("\n🌐 [External Grid Summary]")
                         if ext_sold_total > 0:
                             print(
                                 "    Sold to microgrid: "
@@ -608,10 +591,10 @@ class RoundOrchestrator(OneShotBehaviour):
                     self.agent.ext_grid_rounds_unavailable += 1
 
                     if len(unmet_demand) > 0 or len(surplus_energy) > 0:
-                        print("\nEXTERNAL GRID UNAVAILABLE:\n")
+                        print("\n🚫 EXTERNAL GRID UNAVAILABLE:\n")
 
                         if len(unmet_demand) > 0:
-                            print("  Unmet demand (potential blackout):")
+                            print("  🚨 Unmet demand (potential blackout):")
                             for (
                                 buyer,
                                 _,
@@ -619,22 +602,31 @@ class RoundOrchestrator(OneShotBehaviour):
                                 _,
                                 fulfillment,
                             ) in unmet_demand:
-                                if fulfillment > 0:
-                                    print(
-                                        f"      {buyer}: {remaining:.1f} kWh not supplied "
-                                        f"(only {fulfillment:.0f}% fulfilled)"
-                                    )
-                                else:
-                                    print(
-                                        f"      {buyer}: {remaining:.1f} kWh not supplied"
-                                    )
+                                fulfillment_msg = f"{fulfillment:.0f}% fulfilled"
+                                extra_state = self._format_energy_state(buyer)
+                                if fulfillment <= 0:
+                                    fulfillment_msg = "0% fulfilled"
+                                print(
+                                    f"      {buyer}: {remaining:.1f} kWh not supplied "
+                                    f"({fulfillment_msg}{extra_state})"
+                                )
 
                         if len(surplus_energy) > 0:
-                            print("  Wasted surplus (curtailed):")
+                            print("  ♻️ Wasted surplus (curtailed):")
                             for seller, surplus_kwh in surplus_energy.items():
                                 print(
                                     f"      {seller}: {surplus_kwh:.1f} kWh not sold"
                                 )
+
+            blackout_impacted = sum(
+                1 for pct in buyer_fulfillment.values() if pct < 99.9
+            )
+            avg_fulfillment = (
+                sum(buyer_fulfillment.values()) / len(buyer_fulfillment)
+                if buyer_fulfillment
+                else 0.0
+            )
+            blackout_round = blackout_impacted > 0
 
             # Collect performance metrics for this round
             round_data = {
@@ -654,7 +646,28 @@ class RoundOrchestrator(OneShotBehaviour):
                 # Monetary values for external grid transactions
                 "ext_grid_sold_value": ext_bought_value,
                 "ext_grid_bought_value": ext_sold_value,
+                "avg_fulfillment": avg_fulfillment,
+                "blackout": blackout_round,
+                "blackout_impacted": blackout_impacted,
             }
+
+            round_sleep = self.agent.config["SIMULATION"]["ROUND_SLEEP_SECONDS"]
+            post_env_sleep = round_sleep * 0.2
+            pre_env_sleep = max(0.0, round_sleep - post_env_sleep)
+
+            self._print_auction_results_summary(
+                total_buyers=len(reqs),
+                matched_count=matched_count,
+                partial_count=partial_count,
+                unmatched_count=unmatched_count,
+                declined_count=len(declined),
+                total_traded=total_traded,
+                total_value=total_value,
+                prices_paid=prices_paid,
+                blackout_happened=blackout_round,
+                blackout_impacted=blackout_impacted,
+                round_sleep=round_sleep,
+            )
 
             # Record round (PerformanceTracker may print a report every N rounds)
             self.agent.performance_tracker.record_round(
@@ -665,14 +678,8 @@ class RoundOrchestrator(OneShotBehaviour):
             for p_jid, state in self.agent.producers_state.items():
                 if not state.get("is_operational", True):
                     if state.get("failure_rounds_remaining", 0) == 0:
-                        print(f"\n{p_jid} recovered.\n")
+                        print(f"\n✅ {p_jid} recovered.\n")
 
-            round_sleep = self.agent.config["SIMULATION"]["ROUND_SLEEP_SECONDS"]
-            print(
-                f"\nWaiting {round_sleep} seconds before starting the next round..."
-            )
-            post_env_sleep = round_sleep * 0.2
-            pre_env_sleep = max(0.0, round_sleep - post_env_sleep)
             if pre_env_sleep > 0:
                 await asyncio.sleep(pre_env_sleep)
 
@@ -697,3 +704,75 @@ class RoundOrchestrator(OneShotBehaviour):
 
             if post_env_sleep > 0:
                 await asyncio.sleep(post_env_sleep)
+
+    def _print_auction_results_summary(
+        self,
+        total_buyers,
+        matched_count,
+        partial_count,
+        unmatched_count,
+        declined_count,
+        total_traded,
+        total_value,
+        prices_paid,
+        blackout_happened,
+        blackout_impacted,
+        round_sleep,
+    ):
+        """
+        Print a concise auction summary at the end of each round.
+        """
+        print("\n📊 AUCTION RESULTS:")
+        print(f"   🛒 Buyers requesting energy: {total_buyers}")
+        if matched_count > 0:
+            print(f"   ✅ Fully matched: {matched_count}")
+        if partial_count > 0:
+            print(f"   ⚠️ Partial matches: {partial_count}")
+        if unmatched_count > 0:
+            print(f"   🚫 Unmatched requests: {unmatched_count}")
+        if declined_count > 0:
+            print(f"   🙅 Sellers declined: {declined_count}")
+        if total_traded > 0:
+            print(f"   🔄 Energy traded: {total_traded:.1f} kWh")
+            print(f"   💰 Market value: €{total_value:.2f}")
+            avg_price = (
+                sum(prices_paid) / len(prices_paid) if prices_paid else 0
+            )
+            print(f"   📈 Avg price: €{avg_price:.2f}/kWh")
+        if blackout_happened:
+            print(f"   🚨 Blackout: YES ({blackout_impacted} agent(s) affected)")
+        else:
+            print("   ✅ Blackout: NO")
+
+    def _format_energy_state(self, agent_jid):
+        """
+        Return a string with extra energy state info for unmet demand logs.
+        """
+        state = self.agent.storage_state.get(agent_jid)
+        if state:
+            soc = state.get("soc_kwh", 0.0)
+            cap = state.get("cap_kwh", 0.0)
+            pct = (soc / cap * 100) if cap > 0 else 0.0
+            return f" | SOC {pct:.0f}%"
+
+        household_state = self.agent.households_state.get(agent_jid)
+        if household_state and household_state.get("is_prosumer", False):
+            battery_kwh = household_state.get("battery_kwh", 0.0)
+            cap = self.agent.config["HOUSEHOLDS"]["BATTERY_CAPACITY_KWH"]
+            pct = (battery_kwh / cap * 100) if cap > 0 else 0.0
+            pct = max(0.0, min(100.0, pct))
+            return f" | Battery {pct:.0f}%"
+
+        return ""
+
+    def _get_period_emoji(self, hour):
+        """
+        Map the current hour to an emoji representing the demand period.
+        """
+        if 6 <= hour < 9:
+            return "🌅"
+        if 18 <= hour < 22:
+            return "🌆"
+        if 0 <= hour < 6:
+            return "🌙"
+        return "☀️"

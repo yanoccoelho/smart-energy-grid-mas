@@ -54,9 +54,8 @@ class PerformanceTracker:
 
         # Household-level metrics
         self.household_fulfillment = defaultdict(list)
-        self.rounds_full_blackout = 0
-        self.rounds_partial_blackout = 0
-        self.rounds_perfect = 0
+        self.rounds_blackout = 0
+        self.rounds_normal = 0
 
         # Emergency & failure tracking
         self.producer_failures = 0
@@ -102,18 +101,24 @@ class PerformanceTracker:
         for household, pct in buyer_fulfillment.items():
             self.household_fulfillment[household].append(pct)
 
-        # Round-level blackout classification
-        avg_fulfillment = (
-            sum(buyer_fulfillment.values()) / len(buyer_fulfillment)
-            if buyer_fulfillment else 0
-        )
+        avg_fulfillment = round_data.get("avg_fulfillment")
+        if avg_fulfillment is None:
+            avg_fulfillment = (
+                sum(buyer_fulfillment.values()) / len(buyer_fulfillment)
+                if buyer_fulfillment
+                else 0
+            )
+            round_data["avg_fulfillment"] = avg_fulfillment
 
-        if avg_fulfillment >= 99.9:
-            self.rounds_perfect += 1
-        elif avg_fulfillment > 0:
-            self.rounds_partial_blackout += 1
+        blackout = round_data.get("blackout")
+        if blackout is None:
+            blackout = avg_fulfillment < 99.9
+            round_data["blackout"] = blackout
+
+        if blackout:
+            self.rounds_blackout += 1
         else:
-            self.rounds_full_blackout += 1
+            self.rounds_normal += 1
 
         # Failures and emergencies
         if round_data.get("any_producer_failed", False):
@@ -155,6 +160,8 @@ class PerformanceTracker:
         recent_ext_sold_value = sum(r.get("ext_grid_sold_value", 0) for r in recent_data)
         recent_ext_bought_value = sum(r.get("ext_grid_bought_value", 0) for r in recent_data)
 
+        recent_blackouts = sum(1 for r in recent_data if r.get("blackout"))
+
         # Percentages
         fulfillment_pct = (recent_supplied / recent_demand * 100) if recent_demand > 0 else 0
         from_microgrid = recent_supplied - recent_ext_grid_sold
@@ -166,21 +173,38 @@ class PerformanceTracker:
         net_balance_cumulative = self.ext_grid_sold_value - self.ext_grid_bought_value
 
         print("\n" + "━" * 80)
-        print(f"  PERFORMANCE SUMMARY (Rounds {start_idx + 1}-{round_num})")
+        print(f"  📊 PERFORMANCE SUMMARY (Rounds {start_idx + 1}-{round_num})")
         print("━" * 80)
 
-        print("  Energy Flow:")
-        print(f"     Total Demand: {recent_demand:.1f} kWh | Supplied: {recent_supplied:.1f} kWh ({fulfillment_pct:.1f}%)")
-        print(f"     From Microgrid: {from_microgrid:.1f} kWh ({microgrid_pct:.1f}%)")
-        print(f"     From External Grid: {recent_ext_grid_sold:.1f} kWh ({ext_grid_pct:.1f}%)")
+        print("  ⚡ Energy Flow:")
+        print(
+            f"     • Demand: {recent_demand:.1f} kWh | Supplied: {recent_supplied:.1f} kWh "
+            f"({fulfillment_pct:.1f}%)"
+        )
+        print(f"     • Microgrid: {from_microgrid:.1f} kWh ({microgrid_pct:.1f}%)")
+        print(f"     • External Grid: {recent_ext_grid_sold:.1f} kWh ({ext_grid_pct:.1f}%)")
 
-        print("\n  Economic Performance:")
-        print(f"     Total Market Value (Microgrid): €{recent_value_microgrid:.2f}")
-        print(f"     Sold to External Grid: {recent_ext_grid_bought:.1f} kWh (€{recent_ext_sold_value:.2f})")
-        print(f"     Bought from External Grid: {recent_ext_grid_sold:.1f} kWh (€{recent_ext_bought_value:.2f})")
+        print("\n  💰 Economic Performance:")
+        print(f"     • Market Value: €{recent_value_microgrid:.2f}")
+        print(
+            f"     • Sold → External Grid: {recent_ext_grid_bought:.1f} kWh "
+            f"(€{recent_ext_sold_value:.2f})"
+        )
+        print(
+            f"     • Bought ← External Grid: {recent_ext_grid_sold:.1f} kWh "
+            f"(€{recent_ext_bought_value:.2f})"
+        )
+
+        print("\n  🚨 Reliability:")
+        print(
+            f"     • Blackouts this period: {recent_blackouts}"
+        )
+        print(
+            f"     • Blackouts Totals: {self.rounds_blackout}"
+        )
 
         # Period balance
-        print("\n  Net Balance (Period): ", end="")
+        print("\n  ⚖️  Net Balance (Period): ", end="")
         if net_balance_period > 0:
             print(f"+€{net_balance_period:.2f} (export surplus)")
         elif net_balance_period < 0:
@@ -189,7 +213,7 @@ class PerformanceTracker:
             print("€0.00 (self-sufficient)")
 
         # Cumulative balance
-        print("  Net Balance (Total): ", end="")
+        print("  📉 Net Balance (Total): ", end="")
         if net_balance_cumulative > 0:
             print(f"+€{net_balance_cumulative:.2f} (export surplus)")
         elif net_balance_cumulative < 0:

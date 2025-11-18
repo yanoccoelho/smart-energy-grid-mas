@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 
-BASE_SCENARIO_CONFIG = {
+SE_SCENARIO_CONFIG = {
     "NAME": "Base configuration",
     "DESCRIPTION": "Default smart grid configuration without scenario overrides.",
     "SIMULATION": {
@@ -10,7 +10,14 @@ BASE_SCENARIO_CONFIG = {
         "NUM_PROSUMERS": 2,
         "ROUND_SLEEP_SECONDS": 10,
         "OFFERS_TIMEOUT": 10,
-        "TRANSMISSION_LIMIT_KW": 3.0,
+        "TRANSMISSION_LIMIT_KW": 35.0,
+        "AGENT_LIMITS_KW": {
+            "prosumer": 5.0,
+            "consumer": 3.0,
+            "producer": 35.0,
+            "storage": 35.0,
+            "battery": 35.0,
+        },
     },
 
     "EXTERNAL_GRID": {
@@ -18,7 +25,7 @@ BASE_SCENARIO_CONFIG = {
         "SELL_PRICE": 0.11,
         "MIN_DYNAMIC_PRICE": 0.10,
         "MAX_DYNAMIC_PRICE": 0.30,
-        "ACCEPTANCE_PROB": 0.8,
+        "ACCEPTANCE_PROB": 1,
     },
 
     "PRODUCERS": {
@@ -67,7 +74,7 @@ BASE_SCENARIO_CONFIG = {
 
 def clone_config():
     """Return a deep copy of the base scenario configuration."""
-    return deepcopy(BASE_SCENARIO_CONFIG)
+    return deepcopy(SE_SCENARIO_CONFIG)
 
 
 # Backwards compatibility: modules importing SCENARIO_CONFIG directly
