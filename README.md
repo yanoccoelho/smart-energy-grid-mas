@@ -102,41 +102,6 @@ If producers fail, the storage unit supplies the grid.
 
 ---
 
-## Repository Structure
-
-```bash
-project/
-│
-├── agents/
-│ ├── environment_agent.py
-│ ├── grid_node_agent.py 
-│ ├── performance_metrics.py
-│ ├── producer_agent.py
-│ ├── household_agent.py
-│ └── storage_manager_agent.py
-│
-├── scenarios/
-│ ├── base_config.py
-│ ├── blackout.py 
-│ ├── grid_failure.py
-│ ├── high_demand.py
-│ ├── low_demand.py
-│ ├── overproduction.py 
-│ ├── producer_failure.py 
-│ └── storm.py
-│
-├── logs/
-│ ├── agents_logs.db
-│ ├── db_logger.py
-│ └── inspect_db.py
-│
-├── main.py
-├── requirements.txt
-└── README.md
-```
-
----
-
 ## Installation & Setup
 
 ### 1️. Clone the Repository

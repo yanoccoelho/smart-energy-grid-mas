@@ -70,7 +70,7 @@ class Receiver(CyclicBehaviour):
                             existing_state["is_operational"] = True
                             data["is_operational"] = True
                             data["failure_rounds_remaining"] = 0
-                            print(f"\n{sender} recovered after failure.\n")
+                            print(f"\n✅ {sender} recovered after failure.\n")
                         else:
                             data["is_operational"] = False
                             data["failure_rounds_remaining"] = remaining
@@ -115,8 +115,12 @@ class Receiver(CyclicBehaviour):
             if data.get("round_id") != R:
                 return
             buyer = sender
-            need_kwh = float(data.get("need_kwh", 0))
+            need_kwh = max(0.0, float(data.get("need_kwh", 0)))
             price_max = float(data.get("price_max", 0))
+
+            if need_kwh <= 0.0:
+                return
+
             self.agent.requests_round[R][buyer] = {
                 "need_kwh": need_kwh,
                 "price_max": price_max,
@@ -128,7 +132,7 @@ class Receiver(CyclicBehaviour):
             data = json.loads(msg.body)
             rid = data.get("round_id")
             seller = sender
-            offer = float(data.get("offer_kwh", 0))
+            offer = max(0.0, float(data.get("offer_kwh", 0)))
             price = float(data.get("price", 0))
             now = time.time()
             R = self.agent.round_id
@@ -137,6 +141,9 @@ class Receiver(CyclicBehaviour):
                 producer_state = self.agent.producers_state[sender]
                 if not producer_state.get("is_operational", True):
                     return
+
+            if offer <= 0.0:
+                return
 
             if (
                 rid == R
