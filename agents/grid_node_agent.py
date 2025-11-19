@@ -114,7 +114,7 @@ class GridNodeAgent(spade.agent.Agent):
         self.counts_round = defaultdict(
             lambda: {"buyers": 0, "sellers": 0, "declined": 0}
         )
-        self.sim_hour = 7
+        self.sim_hour = 1
         self.sim_day = 1
         self.round_counter = 1
         self.current_solar = 0.0

@@ -1,5 +1,9 @@
 from collections import defaultdict
 from scenarios.base_config import SCENARIO_CONFIG
+import csv
+import os
+from datetime import datetime
+
 
 
 class PerformanceTracker:
@@ -43,6 +47,16 @@ class PerformanceTracker:
         # Round history
         self.rounds_data = []
 
+        # Create output folder
+        os.makedirs("metrics_logs", exist_ok=True)
+
+        # Unique CSV file for this run
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.csv_path = f"metrics_logs/metrics_{timestamp}.csv"
+
+        # To ensure header is written only once
+        self.csv_header_written = False
+
         # Cumulative totals
         self.total_demand_kwh = 0.0
         self.total_supplied_kwh = 0.0
@@ -51,7 +65,6 @@ class PerformanceTracker:
         self.ext_grid_bought_kwh = 0.0
         self.ext_grid_sold_value = 0.0
         self.ext_grid_bought_value = 0.0
-        self.total_wasted_kwh = 0.0
 
         # Household-level metrics
         self.household_fulfillment = defaultdict(list)
@@ -84,6 +97,7 @@ class PerformanceTracker:
                 - any_producer_failed (bool)
                 - emergency_used (bool)
         """
+        round_data["round"] = round_num
         self.rounds_data.append(round_data)
 
         # Update cumulative metrics
@@ -96,10 +110,15 @@ class PerformanceTracker:
 
         self.ext_grid_sold_value += round_data.get("ext_grid_sold_value", 0)
         self.ext_grid_bought_value += round_data.get("ext_grid_bought_value", 0)
-        self.total_wasted_kwh += round_data.get("wasted_energy", 0.0)
 
         # Buyer fulfillment tracking
         buyer_fulfillment = round_data.get("buyer_fulfillment", {})
+        houses_without_power = sum(
+            1 for pct in buyer_fulfillment.values() if pct < 100
+        )
+        round_data["houses_without_power"] = houses_without_power
+
+        # Count houses without power (fulfillment < 100%)
         for household, pct in buyer_fulfillment.items():
             self.household_fulfillment[household].append(pct)
 
@@ -136,6 +155,9 @@ class PerformanceTracker:
             and round_num % self.report_interval == 0
         ):
             self.print_periodic_summary(round_num)
+        # Save metrics persistently to CSV only
+        self._save_to_csv(round_data)
+
 
     def print_periodic_summary(self, round_num):
         """
@@ -164,14 +186,14 @@ class PerformanceTracker:
 
         recent_blackouts = sum(1 for r in recent_data if r.get("blackout"))
 
+        recent_houses_without_power = sum(r.get("houses_without_power", 0) for r in recent_data)
+        avg_houses_without_power = recent_houses_without_power / len(recent_data)
+
         # Percentages
         fulfillment_pct = (recent_supplied / recent_demand * 100) if recent_demand > 0 else 0
         from_microgrid = recent_supplied - recent_ext_grid_sold
         microgrid_pct = (from_microgrid / recent_supplied * 100) if recent_supplied > 0 else 0
         ext_grid_pct = (recent_ext_grid_sold / recent_supplied * 100) if recent_supplied > 0 else 0
-        ext_flow = recent_ext_grid_bought + recent_ext_grid_sold
-        sold_share = (recent_ext_grid_bought / ext_flow * 100) if ext_flow > 0 else 0
-        bought_share = (recent_ext_grid_sold / ext_flow * 100) if ext_flow > 0 else 0
 
         # Net balances
         net_balance_period = recent_ext_sold_value - recent_ext_bought_value
@@ -188,28 +210,24 @@ class PerformanceTracker:
         )
         print(f"     • Microgrid: {from_microgrid:.1f} kWh ({microgrid_pct:.1f}%)")
         print(f"     • External Grid: {recent_ext_grid_sold:.1f} kWh ({ext_grid_pct:.1f}%)")
+        print(f"     • Wasted Energy: {recent_wasted:.1f} kWh")
 
         print("\n  💰 Economic Performance:")
         print(f"     • Market Value: €{recent_value_microgrid:.2f}")
         print(
             f"     • Sold → External Grid: {recent_ext_grid_bought:.1f} kWh "
-            f"({sold_share:.1f}%) (€{recent_ext_sold_value:.2f})"
+            f"(€{recent_ext_sold_value:.2f})"
         )
         print(
             f"     • Bought ← External Grid: {recent_ext_grid_sold:.1f} kWh "
-            f"({bought_share:.1f}%) (€{recent_ext_bought_value:.2f})"
-        )
-
-        print("\n  ♻️ Waste:")
-        print(
-            f"     • Period wasted energy: {recent_wasted:.1f} kWh | "
-            f"Total wasted: {self.total_wasted_kwh:.1f} kWh"
+            f"(€{recent_ext_bought_value:.2f})"
         )
 
         print("\n  🚨 Reliability:")
         print(
             f"     • Blackouts this period: {recent_blackouts}"
         )
+        print(f"     • Avg houses without power: {avg_houses_without_power:.1f}")
         print(
             f"     • Blackouts Totals: {self.rounds_blackout}"
         )
@@ -233,3 +251,17 @@ class PerformanceTracker:
             print("€0.00 (self-sufficient)")
 
         print("━" * 80 + "\n")
+
+    def _save_to_csv(self, round_data):
+        """Append round metrics to the CSV log file."""
+        write_header = not self.csv_header_written
+
+        with open(self.csv_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=round_data.keys())
+
+            if write_header:
+                writer.writeheader()
+                self.csv_header_written = True
+
+            writer.writerow(round_data)
+

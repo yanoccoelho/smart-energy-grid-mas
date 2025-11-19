@@ -13,3 +13,5 @@ rascunho
 venv
 
 server.db
+
+metrics_logs/

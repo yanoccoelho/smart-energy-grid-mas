@@ -13,7 +13,7 @@ SE_SCENARIO_CONFIG = {
         "TRANSMISSION_LIMIT_KW": 35.0,
         "AGENT_LIMITS_KW": {
             "prosumer": 5.0,
-            "consumer": 3.0,
+            "consumer": 3.5,
             "producer": 35.0,
             "storage": 35.0,
             "battery": 35.0,
@@ -25,7 +25,7 @@ SE_SCENARIO_CONFIG = {
         "SELL_PRICE": 0.15,
         "MIN_DYNAMIC_PRICE": 0.10,
         "MAX_DYNAMIC_PRICE": 0.30,
-        "ACCEPTANCE_PROB": 0,
+        "ACCEPTANCE_PROB": 0.7,
     },
 
     "PRODUCERS": {

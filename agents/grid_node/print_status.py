@@ -34,7 +34,7 @@ class PrintAgentStatus(OneShotBehaviour):
             else:
                 consumers.append((jid, state))
 
-        print("CONSUMERS")
+        print("🏘️ CONSUMERS")
         for jid, state in consumers:
             demand = round(state.get("demand_kwh", 0), 2)
             deficit = -demand
@@ -44,7 +44,7 @@ class PrintAgentStatus(OneShotBehaviour):
                 f"{limit_suffix(jid)}"
             )
 
-        print("\nPROSUMERS")
+        print("\n🏘️ PROSUMERS")
         for jid, state in prosumers:
             demand = round(state.get("demand_kwh", 0), 2)
             prod = round(state.get("prod_kwh", 0), 2)
@@ -63,7 +63,7 @@ class PrintAgentStatus(OneShotBehaviour):
                 f"-> {prod:.2f} kWh"
             )
 
-        print("\nPRODUCERS")
+        print("\n⚡PRODUCERS")
         for jid, state in self.agent.producers_state.items():
             prod = round(state.get("prod_kwh", 0), 2)
             prod_type = state.get("type", "unknown")
@@ -110,7 +110,7 @@ class PrintAgentStatus(OneShotBehaviour):
                     f"{limit_suffix(jid)}"
                 )
 
-        print("\nSTORAGE")
+        print("\n🔋STORAGE")
         for jid, state in self.agent.storage_state.items():
             soc = round(state.get("soc_kwh", 0), 2)
             cap = round(state.get("cap_kwh", 1), 2)
