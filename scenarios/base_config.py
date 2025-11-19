@@ -25,13 +25,13 @@ SE_SCENARIO_CONFIG = {
         "SELL_PRICE": 0.11,
         "MIN_DYNAMIC_PRICE": 0.10,
         "MAX_DYNAMIC_PRICE": 0.30,
-        "ACCEPTANCE_PROB": 1,
+        "ACCEPTANCE_PROB": 0,
     },
 
     "PRODUCERS": {
         "SOLAR_CAPACITY_KW": 20.0,
         "WIND_CAPACITY_KW": 50.0,
-        "SOLAR_EFFICIENCY": 0.20,
+        "SOLAR_EFFICIENCY": 0.40,
         "WIND_CAPACITY_FACTOR": 0.42,
         "PRODUCTION_NOISE_RANGE": (0.95, 1.05),
         "FAILURE_PROB": 0.2,

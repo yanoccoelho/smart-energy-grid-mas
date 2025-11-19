@@ -698,32 +698,7 @@ class RoundOrchestrator(OneShotBehaviour):
                     self.agent.ext_grid_rounds_unavailable += 1
 
                     if len(unmet_demand) > 0 or len(surplus_energy) > 0:
-                        print("\n🚫 EXTERNAL GRID UNAVAILABLE:\n")
-
-                        if len(unmet_demand) > 0:
-                            print("  🚨 Unmet demand (potential blackout):")
-                            for (
-                                buyer,
-                                _,
-                                remaining,
-                                _,
-                                fulfillment,
-                            ) in unmet_demand:
-                                fulfillment_msg = f"{fulfillment:.0f}% fulfilled"
-                                extra_state = self._format_energy_state(buyer)
-                                if fulfillment <= 0:
-                                    fulfillment_msg = "0% fulfilled"
-                                print(
-                                    f"      {buyer}: {remaining:.1f} kWh not supplied "
-                                    f"({fulfillment_msg}{extra_state})"
-                                )
-
-                        if len(surplus_energy) > 0:
-                            print("  ♻️ Wasted surplus (curtailed):")
-                            for seller, surplus_kwh in surplus_energy.items():
-                                print(
-                                    f"      {seller}: {surplus_kwh:.1f} kWh not sold"
-                                )
+                        pass
 
             blackout_impacted = sum(
                 1 for pct in buyer_fulfillment.values() if pct < 99.0
