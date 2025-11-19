@@ -51,6 +51,7 @@ class PerformanceTracker:
         self.ext_grid_bought_kwh = 0.0
         self.ext_grid_sold_value = 0.0
         self.ext_grid_bought_value = 0.0
+        self.total_wasted_kwh = 0.0
 
         # Household-level metrics
         self.household_fulfillment = defaultdict(list)
@@ -95,6 +96,7 @@ class PerformanceTracker:
 
         self.ext_grid_sold_value += round_data.get("ext_grid_sold_value", 0)
         self.ext_grid_bought_value += round_data.get("ext_grid_bought_value", 0)
+        self.total_wasted_kwh += round_data.get("wasted_energy", 0.0)
 
         # Buyer fulfillment tracking
         buyer_fulfillment = round_data.get("buyer_fulfillment", {})
@@ -167,6 +169,9 @@ class PerformanceTracker:
         from_microgrid = recent_supplied - recent_ext_grid_sold
         microgrid_pct = (from_microgrid / recent_supplied * 100) if recent_supplied > 0 else 0
         ext_grid_pct = (recent_ext_grid_sold / recent_supplied * 100) if recent_supplied > 0 else 0
+        ext_flow = recent_ext_grid_bought + recent_ext_grid_sold
+        sold_share = (recent_ext_grid_bought / ext_flow * 100) if ext_flow > 0 else 0
+        bought_share = (recent_ext_grid_sold / ext_flow * 100) if ext_flow > 0 else 0
 
         # Net balances
         net_balance_period = recent_ext_sold_value - recent_ext_bought_value
@@ -188,11 +193,17 @@ class PerformanceTracker:
         print(f"     • Market Value: €{recent_value_microgrid:.2f}")
         print(
             f"     • Sold → External Grid: {recent_ext_grid_bought:.1f} kWh "
-            f"(€{recent_ext_sold_value:.2f})"
+            f"({sold_share:.1f}%) (€{recent_ext_sold_value:.2f})"
         )
         print(
             f"     • Bought ← External Grid: {recent_ext_grid_sold:.1f} kWh "
-            f"(€{recent_ext_bought_value:.2f})"
+            f"({bought_share:.1f}%) (€{recent_ext_bought_value:.2f})"
+        )
+
+        print("\n  ♻️ Waste:")
+        print(
+            f"     • Period wasted energy: {recent_wasted:.1f} kWh | "
+            f"Total wasted: {self.total_wasted_kwh:.1f} kWh"
         )
 
         print("\n  🚨 Reliability:")

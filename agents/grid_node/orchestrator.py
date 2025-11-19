@@ -40,10 +40,10 @@ class RoundOrchestrator(OneShotBehaviour):
             if label:
                 parts.append(label)
             elif effective_limit is not None:
-                parts.append(f"limit {effective_limit:.1f} kWh")
+                parts.append(f"limit {effective_limit:.2f} kWh")
 
             if deliverable_value is not None:
-                parts.append(f"deliverable {deliverable_value:.1f} kWh")
+                parts.append(f"deliverable {deliverable_value:.2f} kWh")
 
             if not parts:
                 return ""
@@ -55,7 +55,7 @@ class RoundOrchestrator(OneShotBehaviour):
             Build the textual description for a buyer's demand line.
             """
             return (
-                f"{agent_label} needs {needs_value:.1f} kWh"
+                f"{agent_label} needs {needs_value:.2f} kWh"
                 f"{limit_suffix(limit_info, deliverable_value)}"
             )
         while True:
@@ -320,8 +320,8 @@ class RoundOrchestrator(OneShotBehaviour):
                     if amount < raw_allocation:
                         log_msg = (
                             "⚠️ [TRANSMISSION LIMIT] Original offer of "
-                            f"{raw_allocation:.1f} kWh limited to "
-                            f"{amount:.1f} kWh."
+                            f"{raw_allocation:.2f} kWh limited to "
+                            f"{amount:.2f} kWh."
                         )
                         print(f"        {log_msg}")
                         self.agent._add_event(
@@ -364,18 +364,18 @@ class RoundOrchestrator(OneShotBehaviour):
 
                         print(
                             f"     • Matched with {seller} @ €{price:.2f}/kWh "
-                            f"({amount:.1f} kWh, €{cost:.2f})"
+                            f"({amount:.2f} kWh, €{cost:.2f})"
                         )
                         print(
                             f"        {seller} remaining: "
-                            f"{remaining_after:.1f} kWh "
-                            f"(was {seller_before:.1f} kWh)"
+                            f"{remaining_after:.2f} kWh "
+                            f"(was {seller_before:.2f} kWh)"
                         )
 
                     avg_price = total_cost / total_bought if total_bought > 0 else 0
                     print(
-                        f"     • {buyer} received {total_bought:.1f}/"
-                        f"{need_kwh:.1f} kWh ({fulfillment_pct:.0f}% fulfilled)"
+                        f"     • {buyer} received {total_bought:.2f}/"
+                        f"{need_kwh:.2f} kWh ({fulfillment_pct:.0f}% fulfilled)"
                     )
                     print(
                         f"     • Total cost: €{total_cost:.2f} "
@@ -442,6 +442,41 @@ class RoundOrchestrator(OneShotBehaviour):
                     unmatched_count += 1
                     buyer_fulfillment[buyer] = 0.0
 
+            # Unmet demand list
+            unmet_demand = []
+            for buyer, req_data in reqs:
+                need_kwh = req_data["need_kwh"]
+                received = buyer_received_kw.get(buyer, 0.0)
+                remaining = max(0.0, need_kwh - received)
+                fulfillment = (
+                    (received / need_kwh * 100) if need_kwh > 0 else 0.0
+                )
+                buyer_fulfillment[buyer] = fulfillment
+                if remaining > 0.01:
+                    price_max = req_data["price_max"]
+                    cap_info = buyer_caps.get(buyer, {})
+                    unmet_demand.append(
+                        (
+                            buyer,
+                            need_kwh,
+                            remaining,
+                            price_max,
+                            fulfillment,
+                            cap_info,
+                        )
+                    )
+
+            # Surplus that could be sent to external grid
+            surplus_energy = {}
+            for seller, remaining in seller_remaining.items():
+                if remaining > 0.5:
+                    if seller in self.agent.storage_state:
+                        storage_info = self.agent.storage_state[seller]
+                        if storage_info.get("emergency_only", False):
+                            continue
+                    surplus_energy[seller] = remaining
+            wasted_energy = sum(surplus_energy.values())
+
             # External grid interaction
             if self.agent.external_grid_enabled:
                 self.agent.external_grid_buy_price = random.uniform(
@@ -456,40 +491,6 @@ class RoundOrchestrator(OneShotBehaviour):
                 ext_available = (
                     random.random() < self.agent.external_grid_acceptance_prob
                 )
-
-                # Unmet demand list
-                unmet_demand = []
-                for buyer, req_data in reqs:
-                    need_kwh = req_data["need_kwh"]
-                    received = buyer_received_kw.get(buyer, 0.0)
-                    remaining = max(0.0, need_kwh - received)
-                    fulfillment = (
-                        (received / need_kwh * 100) if need_kwh > 0 else 0.0
-                    )
-                    buyer_fulfillment[buyer] = fulfillment
-                    if remaining > 0.01:
-                        price_max = req_data["price_max"]
-                        cap_info = buyer_caps.get(buyer, {})
-                        unmet_demand.append(
-                            (
-                                buyer,
-                                need_kwh,
-                                remaining,
-                                price_max,
-                                fulfillment,
-                                cap_info,
-                            )
-                        )
-
-                # Surplus that could be sent to external grid
-                surplus_energy = {}
-                for seller, remaining in seller_remaining.items():
-                    if remaining > 0.5:
-                        if seller in self.agent.storage_state:
-                            storage_info = self.agent.storage_state[seller]
-                            if storage_info.get("emergency_only", False):
-                                continue
-                        surplus_energy[seller] = remaining
 
                 ext_sold_total = 0.0
                 ext_sold_value = 0.0
@@ -676,6 +677,7 @@ class RoundOrchestrator(OneShotBehaviour):
                         self.agent.ext_grid_costs += total_revenue
                         ext_bought_total += surplus_kwh
                         ext_bought_value += total_revenue
+                        wasted_energy -= surplus_kwh
 
                     if ext_sold_total > 0 or ext_bought_total > 0:
                         print("\n🌐 [External Grid Summary]")
@@ -698,7 +700,14 @@ class RoundOrchestrator(OneShotBehaviour):
                     self.agent.ext_grid_rounds_unavailable += 1
 
                     if len(unmet_demand) > 0 or len(surplus_energy) > 0:
-                        pass
+                        print("\n🚫 EXTERNAL GRID UNAVAILABLE:\n")
+            
+                        if len(surplus_energy) > 0:
+                            print("⚡️ Wasted surplus (curtailed):")
+                            for seller, surplus_kwh in surplus_energy.items():
+                                print(
+                                    f" {seller}: {surplus_kwh:.1f} kWh not sold"
+                                )
 
             blackout_impacted = sum(
                 1 for pct in buyer_fulfillment.values() if pct < 99.0
@@ -719,7 +728,7 @@ class RoundOrchestrator(OneShotBehaviour):
                 else 0,
                 "total_supplied": total_traded + ext_sold_total,
                 "market_value": total_value + ext_sold_value,
-                "wasted_energy": sum(seller_remaining.values()),
+                "wasted_energy": max(0.0, wasted_energy),
                 "ext_grid_sold": ext_sold_total,
                 "ext_grid_bought": ext_bought_total,
                 "buyer_fulfillment": buyer_fulfillment.copy(),
@@ -758,6 +767,11 @@ class RoundOrchestrator(OneShotBehaviour):
                 total_traded=total_traded,
                 total_value=total_value,
                 prices_paid=prices_paid,
+                ext_sold_total=ext_sold_total,
+                ext_sold_value=ext_sold_value,
+                ext_bought_total=ext_bought_total,
+                ext_bought_value=ext_bought_value,
+                wasted_energy=wasted_energy,
                 blackout_happened=blackout_round,
                 blackout_impacted=blackout_impacted,
                 round_sleep=round_sleep,
@@ -809,6 +823,11 @@ class RoundOrchestrator(OneShotBehaviour):
         total_traded,
         total_value,
         prices_paid,
+        ext_sold_total,
+        ext_sold_value,
+        ext_bought_total,
+        ext_bought_value,
+        wasted_energy,
         blackout_happened,
         blackout_impacted,
         round_sleep,
@@ -823,20 +842,31 @@ class RoundOrchestrator(OneShotBehaviour):
         if partial_count > 0:
             print(f"   ⚠️ Partial matches: {partial_count}")
         if unmatched_count > 0:
-            print(f"   🚫 Unmatched requests: {unmatched_count}")
+            print(f"   🚨 Unmatched requests: {unmatched_count}")
         if declined_count > 0:
-            print(f"   🙅 Sellers declined: {declined_count}")
+            print(f"   🚫 Sellers declined: {declined_count}")
         if total_traded > 0:
-            print(f"   🔄 Energy traded: {total_traded:.1f} kWh")
+            print(f"   ⚡ Energy traded: {total_traded:.1f} kWh")
             print(f"   💰 Market value: €{total_value:.2f}")
-            avg_price = (
-                sum(prices_paid) / len(prices_paid) if prices_paid else 0
-            )
+            avg_price = sum(prices_paid) / len(prices_paid) if prices_paid else 0
             print(f"   📈 Avg price: €{avg_price:.2f}/kWh")
+        if ext_sold_total > 0 or ext_bought_total > 0:
+            print("   🌐 External grid market value:")
+            if ext_sold_total > 0:
+                print(
+                    f"      Import (grid → buyers): {ext_sold_total:.1f} kWh cost €{ext_sold_value:.2f}"
+                )
+            if ext_bought_total > 0:
+                print(
+                    f"      Export (microgrid → grid): {ext_bought_total:.1f} kWh revenue €{ext_bought_value:.2f}"
+                )
+        if wasted_energy > 0:
+            print(f"   ♻️ Wasted energy: {wasted_energy:.1f} kWh")
         if blackout_happened:
             print(f"   🚨 Blackout: YES ({blackout_impacted} agent(s) affected)")
         else:
             print("   ✅ Blackout: NO")
+
 
     def _format_energy_state(self, agent_jid):
         """

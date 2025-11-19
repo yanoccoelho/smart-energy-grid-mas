@@ -21,15 +21,15 @@ SE_SCENARIO_CONFIG = {
     },
 
     "EXTERNAL_GRID": {
-        "BUY_PRICE": 0.30,
-        "SELL_PRICE": 0.11,
+        "BUY_PRICE": 0.25,
+        "SELL_PRICE": 0.15,
         "MIN_DYNAMIC_PRICE": 0.10,
         "MAX_DYNAMIC_PRICE": 0.30,
         "ACCEPTANCE_PROB": 0,
     },
 
     "PRODUCERS": {
-        "SOLAR_CAPACITY_KW": 20.0,
+        "SOLAR_CAPACITY_KW": 50.0,
         "WIND_CAPACITY_KW": 50.0,
         "SOLAR_EFFICIENCY": 0.40,
         "WIND_CAPACITY_FACTOR": 0.42,
