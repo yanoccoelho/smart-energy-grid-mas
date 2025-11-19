@@ -25,7 +25,7 @@ SE_SCENARIO_CONFIG = {
         "SELL_PRICE": 0.11,
         "MIN_DYNAMIC_PRICE": 0.10,
         "MAX_DYNAMIC_PRICE": 0.30,
-        "ACCEPTANCE_PROB": 0,
+        "ACCEPTANCE_PROB": 0.6,
     },
 
     "PRODUCERS": {

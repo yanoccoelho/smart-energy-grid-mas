@@ -1,5 +1,9 @@
 from collections import defaultdict
 from scenarios.base_config import SCENARIO_CONFIG
+import csv
+import os
+from datetime import datetime
+
 
 
 class PerformanceTracker:
@@ -43,6 +47,16 @@ class PerformanceTracker:
         # Round history
         self.rounds_data = []
 
+        # Create output folder
+        os.makedirs("metrics_logs", exist_ok=True)
+
+        # Unique CSV file for this run
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.csv_path = f"metrics_logs/metrics_{timestamp}.csv"
+
+        # To ensure header is written only once
+        self.csv_header_written = False
+
         # Cumulative totals
         self.total_demand_kwh = 0.0
         self.total_supplied_kwh = 0.0
@@ -83,6 +97,7 @@ class PerformanceTracker:
                 - any_producer_failed (bool)
                 - emergency_used (bool)
         """
+        round_data["round"] = round_num
         self.rounds_data.append(round_data)
 
         # Update cumulative metrics
@@ -134,6 +149,9 @@ class PerformanceTracker:
             and round_num % self.report_interval == 0
         ):
             self.print_periodic_summary(round_num)
+        # Save metrics persistently to CSV only
+        self._save_to_csv(round_data)
+
 
     def print_periodic_summary(self, round_num):
         """
@@ -222,3 +240,17 @@ class PerformanceTracker:
             print("€0.00 (self-sufficient)")
 
         print("━" * 80 + "\n")
+
+    def _save_to_csv(self, round_data):
+        """Append round metrics to the CSV log file."""
+        write_header = not self.csv_header_written
+
+        with open(self.csv_path, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=round_data.keys())
+
+            if write_header:
+                writer.writeheader()
+                self.csv_header_written = True
+
+            writer.writerow(round_data)
+
